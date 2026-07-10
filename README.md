@@ -76,5 +76,3 @@ External services used at runtime (all free, no keys): Open Food Facts (barcode 
 - Recipe/product imports send only the URL or search term to the lookup services.
 
 ---
-
-🤖 Built with [Claude Code](https://claude.com/claude-code)
