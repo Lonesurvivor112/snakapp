@@ -27,6 +27,7 @@ const Storage = (() => {
     savedGroceryLists: [],   // [{ id, name, savedAt, list }]
     savedDinnerPlans: [],    // [{ id, name, savedAt, days }]
     categories: ["sweet", "savory", "salty", "healthy", "drink", "other"],
+    tags: [],                // managed tag list (snacks can also carry ad-hoc tags)
   });
 
   /* Heal text damaged by an earlier import bug that split words after units
@@ -640,9 +641,38 @@ const Storage = (() => {
     save();
   }
 
-  /* ================= Categories ================= */
+  /* ================= Categories & tags ================= */
   function setCategories(arr) {
     data.categories = arr;
+    save();
+  }
+  function renameCategoryEverywhere(oldC, newC) {
+    data.categories = [...new Set(data.categories.map(c => (c === oldC ? newC : c)))];
+    data.snacks.forEach(s => { if (s.category === oldC) s.category = newC; });
+    save();
+  }
+
+  function setTags(arr) {
+    data.tags = arr;
+    save();
+  }
+  function renameTagEverywhere(oldT, newT) {
+    data.tags = [...new Set(data.tags.map(t => (t === oldT ? newT : t)))];
+    data.snacks.forEach(s => {
+      if (s.tags) s.tags = [...new Set(s.tags.map(t => (t === oldT ? newT : t)))];
+    });
+    save();
+  }
+  function removeTagEverywhere(t) {
+    data.tags = data.tags.filter(x => x !== t);
+    data.snacks.forEach(s => { if (s.tags) s.tags = s.tags.filter(x => x !== t); });
+    save();
+  }
+
+  /* Plain snack-plan setter for manual day edits (doesn't touch
+   * prevPlanSnackIds / lastPlannedAt bookkeeping like setPlan does) */
+  function updatePlan(plan) {
+    data.lastPlan = plan;
     save();
   }
 
@@ -671,9 +701,10 @@ const Storage = (() => {
     get savedGroceryLists() { return data.savedGroceryLists; },
     get savedDinnerPlans() { return data.savedDinnerPlans; },
     get categories() { return data.categories; },
+    get tags() { return data.tags; },
     setGroceryList, saveGroceryListAs, loadSavedGroceryList, deleteSavedGroceryList,
-    updateDinnerPlan, saveDinnerPlanAs, loadSavedDinnerPlan, deleteSavedDinnerPlan,
-    setCategories,
+    updateDinnerPlan, saveDinnerPlanAs, loadSavedDinnerPlan, deleteSavedDinnerPlan, updatePlan,
+    setCategories, renameCategoryEverywhere, setTags, renameTagEverywhere, removeTagEverywhere,
     addSnack, updateSnack, deleteSnack,
     addRecipe, updateRecipe, deleteRecipe,
     addCollection, deleteCollection, addToCollection, removeFromCollection,

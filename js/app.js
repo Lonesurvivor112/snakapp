@@ -201,6 +201,12 @@
         Storage.addSnack(values);
         toast("Snack added");
       }
+      // Any newly typed tags join the managed list (Settings → Tags)
+      const newTags = values.tags.filter(t => !Storage.tags.includes(t));
+      if (newTags.length) {
+        Storage.setTags([...Storage.tags, ...newTags]);
+        renderTagsEditor();
+      }
       closeModal();
       renderSnacks();
       renderFilterOptions();
@@ -268,7 +274,7 @@
 
     const tagSel = $("#snack-filter-tag");
     const currentTag = tagSel.value;
-    const tags = [...new Set(Storage.snacks.flatMap(s => s.tags || []))].sort();
+    const tags = [...new Set([...Storage.tags, ...Storage.snacks.flatMap(s => s.tags || [])])].sort();
     tagSel.innerHTML = `<option value="">All tags</option>` +
       tags.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
     tagSel.value = currentTag;
@@ -733,15 +739,28 @@
     $("#plan-empty").classList.toggle("hidden", hasAny);
     $$(".plan-section-head").forEach(h => h.classList.remove("hidden"));
 
-    $("#plan-grid").innerHTML = ((snackPlan && snackPlan.days) || []).map(d => {
-      const snack = Storage.snacks.find(s => s.id === d.snackId);
-      if (!snack) return `<div class="plan-day"><h3>${d.day}</h3><span class="card-meta">(snack removed)</span></div>`;
-      return `
-        <div class="plan-day">
-          <h3>${d.day}</h3>
+    $("#plan-grid").innerHTML = ((snackPlan && snackPlan.days) || []).map((d, i) => {
+      const snack = d.snackId ? Storage.snacks.find(s => s.id === d.snackId) : null;
+      const dayButtons = `
+        <span class="day-actions">
+          <button class="day-btn" data-action="edit-day" title="Set this day's snack">✎</button>
+          <button class="day-btn" data-action="clear-day" title="Clear this day">✕</button>
+        </span>`;
+      let body;
+      if (d.customText) {
+        body = `<span class="plan-snack">${esc(d.customText)}</span><span class="card-meta">custom</span>`;
+      } else if (snack) {
+        body = `
           ${snack.image ? `<img src="${esc(snack.image)}" alt="" onerror="this.remove()">` : ""}
           <span class="plan-snack">${esc(snack.name)}</span>
-          <span class="card-meta">${esc(snack.category)}${Planner.isHomemade(snack) ? " · homemade" : ""}</span>
+          <span class="card-meta">${esc(snack.category)}${Planner.isHomemade(snack) ? " · homemade" : ""}</span>`;
+      } else {
+        body = `<span class="card-meta plan-empty-day">— empty —</span>`;
+      }
+      return `
+        <div class="plan-day" data-day-idx="${i}">
+          <h3>${d.day}${dayButtons}</h3>
+          ${body}
         </div>`;
     }).join("");
 
@@ -782,10 +801,67 @@
       </span>`).join("");
   }
 
-  /* Blank 7-day scaffold for building a week by hand */
+  /* Blank 7-day scaffolds for building a week by hand */
   function blankDinnerPlan() {
     return { seed: 0, days: Planner.DAYS.map(day => ({ day, recipeId: null, customText: null })), notes: [] };
   }
+  function blankSnackPlan() {
+    return { seed: 0, days: Planner.DAYS.map(day => ({ day, snackId: null, customText: null })), notes: [] };
+  }
+
+  function openEditSnackDay(plan, i) {
+    const d = plan.days[i];
+    openModal(`
+      <h2>${d.day} snack</h2>
+      <div class="form-field">
+        <label>Pick a snack</label>
+        <select id="day-snack">
+          <option value="">— none —</option>
+          ${Storage.snacks.map(s => `<option value="${s.id}" ${d.snackId === s.id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="form-field" style="margin-top: 0.6rem">
+        <label>…or type a custom snack (overrides the pick)</label>
+        <input id="day-snack-custom" value="${esc(d.customText || "")}" placeholder="e.g. Whatever's in the pantry">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="day-snack-cancel">Cancel</button>
+        <button class="btn btn-primary" id="day-snack-save">Save</button>
+      </div>`);
+    $("#day-snack-cancel").addEventListener("click", closeModal);
+    $("#day-snack-save").addEventListener("click", () => {
+      const custom = $("#day-snack-custom").value.trim();
+      const sid = $("#day-snack").value;
+      plan.days[i] = { day: d.day, snackId: custom ? null : (sid || null), customText: custom || null };
+      Storage.updatePlan(plan);
+      closeModal();
+      renderPlan();
+    });
+  }
+
+  $("#plan-grid").addEventListener("click", (e) => {
+    const actionBtn = e.target.closest("[data-action]");
+    const dayCard = e.target.closest("[data-day-idx]");
+    const plan = Storage.lastPlan;
+    if (!actionBtn || !dayCard || !plan) return;
+    const i = +dayCard.dataset.dayIdx;
+    if (actionBtn.dataset.action === "clear-day") {
+      plan.days[i] = { day: plan.days[i].day, snackId: null, customText: null };
+      Storage.updatePlan(plan);
+      renderPlan();
+    } else if (actionBtn.dataset.action === "edit-day") {
+      openEditSnackDay(plan, i);
+    }
+  });
+
+  $("#clear-snackdays-btn").addEventListener("click", () => {
+    const plan = Storage.lastPlan;
+    if (plan && plan.days.some(d => d.snackId || d.customText)) {
+      if (!confirm("Empty all 7 snack days?")) return;
+    }
+    Storage.updatePlan(blankSnackPlan());
+    renderPlan();
+  });
 
   function openEditDinnerDay(plan, i) {
     const d = plan.days[i];
@@ -1270,7 +1346,10 @@
 
   function renderCategoriesEditor() {
     $("#category-chips").innerHTML = Storage.categories.map(c => `
-      <span class="collection-chip">${esc(c)} <button data-del-cat="${esc(c)}" title="Remove category">✕</button></span>`).join("") ||
+      <span class="collection-chip">${esc(c)}
+        <button data-ren-cat="${esc(c)}" title="Rename category (updates all snacks)">✎</button>
+        <button data-del-cat="${esc(c)}" title="Remove category from this list">✕</button>
+      </span>`).join("") ||
       `<span class="card-meta">No categories yet — add some below.</span>`;
   }
 
@@ -1289,11 +1368,67 @@
   });
 
   $("#category-chips").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-del-cat]");
-    if (!btn) return;
-    Storage.setCategories(Storage.categories.filter(c => c !== btn.dataset.delCat));
-    renderCategoriesEditor();
+    const ren = e.target.closest("[data-ren-cat]");
+    const del = e.target.closest("[data-del-cat]");
+    if (ren) {
+      const oldC = ren.dataset.renCat;
+      const newC = prompt(`Rename category "${oldC}" to:`, oldC);
+      if (!newC || !newC.trim() || newC.trim().toLowerCase() === oldC) return;
+      Storage.renameCategoryEverywhere(oldC, newC.trim().toLowerCase());
+      renderCategoriesEditor();
+      renderFilterOptions();
+      renderSnacks();
+    } else if (del) {
+      Storage.setCategories(Storage.categories.filter(c => c !== del.dataset.delCat));
+      renderCategoriesEditor();
+      renderFilterOptions();
+    }
+  });
+
+  /* ---- Tags editor ---- */
+
+  function renderTagsEditor() {
+    $("#tag-chips").innerHTML = Storage.tags.map(t => `
+      <span class="collection-chip">${esc(t)}
+        <button data-ren-tag="${esc(t)}" title="Rename tag (updates all snacks)">✎</button>
+        <button data-del-tag="${esc(t)}" title="Remove tag from every snack">✕</button>
+      </span>`).join("") ||
+      `<span class="card-meta">No tags yet — add one below, or tag a snack and it appears here.</span>`;
+  }
+
+  $("#tag-add-btn").addEventListener("click", () => {
+    const input = $("#tag-add-input");
+    const val = input.value.trim().toLowerCase();
+    if (!val) return;
+    if (Storage.tags.includes(val)) { toast("That tag already exists"); return; }
+    Storage.setTags([...Storage.tags, val]);
+    input.value = "";
+    renderTagsEditor();
     renderFilterOptions();
+  });
+  $("#tag-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("#tag-add-btn").click();
+  });
+
+  $("#tag-chips").addEventListener("click", (e) => {
+    const ren = e.target.closest("[data-ren-tag]");
+    const del = e.target.closest("[data-del-tag]");
+    if (ren) {
+      const oldT = ren.dataset.renTag;
+      const newT = prompt(`Rename tag "${oldT}" to:`, oldT);
+      if (!newT || !newT.trim() || newT.trim().toLowerCase() === oldT) return;
+      Storage.renameTagEverywhere(oldT, newT.trim().toLowerCase());
+      renderTagsEditor();
+      renderFilterOptions();
+      renderSnacks();
+    } else if (del) {
+      const t = del.dataset.delTag;
+      if (!confirm(`Remove tag "${t}" from the list AND from every snack using it?`)) return;
+      Storage.removeTagEverywhere(t);
+      renderTagsEditor();
+      renderFilterOptions();
+      renderSnacks();
+    }
   });
 
   /* ---- Cloud database (GitHub) ---- */
@@ -1364,6 +1499,7 @@
     renderSavedGroceryLists();
     renderCollections();
     renderCategoriesEditor();
+    renderTagsEditor();
   }
   renderAll();
   renderDbStatus(Storage.fileInfo());
