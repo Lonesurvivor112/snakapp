@@ -23,6 +23,7 @@ const Storage = (() => {
     prevPlanSnackIds: [],    // snack ids used in the plan before the current one
     lastDinnerPlan: null,    // { seed, days: [{ day, recipeId }] }
     prevDinnerRecipeIds: [],
+    groceryList: null,       // { items: [{name, amounts, from, checked}], recipeNames, createdAt }
   });
 
   let data = loadLocal();
@@ -545,6 +546,12 @@ const Storage = (() => {
     save();
   }
 
+  /* ================= Grocery list ================= */
+  function setGroceryList(list) {
+    data.groceryList = list;
+    save();
+  }
+
   /* ================= Export / import ================= */
   function exportJSON() {
     return JSON.stringify(data, null, 2);
@@ -566,6 +573,8 @@ const Storage = (() => {
     get prevPlanSnackIds() { return data.prevPlanSnackIds; },
     get lastDinnerPlan() { return data.lastDinnerPlan; },
     get prevDinnerRecipeIds() { return data.prevDinnerRecipeIds; },
+    get groceryList() { return data.groceryList; },
+    setGroceryList,
     addSnack, updateSnack, deleteSnack,
     addRecipe, updateRecipe, deleteRecipe,
     addCollection, deleteCollection, addToCollection, removeFromCollection,

@@ -325,6 +325,56 @@ const Importer = (() => {
     return json.status === 1 ? json.product : null;
   }
 
+  /* Second barcode database — richer US coverage, but its CORS policy blocks
+   * direct browser calls, so it goes through the proxy chain */
+  async function upcItemDbLookup(code) {
+    const enc = encodeURIComponent("https://api.upcitemdb.com/prod/trial/lookup?upc=" + code);
+    const sources = [
+      "https://api.allorigins.win/raw?url=" + enc,
+      "https://corsproxy.io/?url=" + enc,
+      "https://api.codetabs.com/v1/proxy?quest=" + enc,
+    ];
+    for (const src of sources) {
+      let json;
+      try { json = JSON.parse(await fetchText(src, 8000)); } catch (e) { continue; }
+      const item = json.items && json.items[0];
+      if (item && item.title) {
+        return {
+          product_name: item.title,
+          brands: item.brand || "",
+          image_front_url: (item.images && item.images[0]) || "",
+          quantity: "",
+          categories_tags_en: item.category ? item.category.split(">").map(s => s.trim()) : [],
+        };
+      }
+      if (json.code === "OK") return null; // database answered: no such barcode
+    }
+    return null;
+  }
+
+  /* Last lookup resort: search the food database by name from the URL slug.
+   * Only accept a hit when most of the slug words actually match. */
+  async function offSearchByName(query) {
+    try {
+      const raw = await fetchText(
+        "https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=5" +
+        "&fields=product_name,brands,image_front_url,quantity,categories_tags_en" +
+        "&search_terms=" + encodeURIComponent(query), 15000);
+      const json = JSON.parse(raw);
+      const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      if (!words.length) return null;
+      let best = null, bestScore = 0;
+      for (const p of json.products || []) {
+        const hay = ((p.product_name || "") + " " + (p.brands || "")).toLowerCase();
+        const score = words.filter(w => hay.includes(w)).length / words.length;
+        if (score > bestScore) { best = p; bestScore = score; }
+      }
+      return (bestScore >= 0.5 && best && best.product_name) ? best : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function extractProductFromHtml(html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
     for (const script of doc.querySelectorAll('script[type="application/ld+json"]')) {
@@ -367,9 +417,17 @@ const Importer = (() => {
       if (!variants.includes(stripped)) variants.push(stripped);
     }
     let product = null;
+    let method = "barcode";
     for (const code of variants) {
       try { product = await offLookup(code); } catch (e) { /* next variant */ }
       if (product) break;
+    }
+    if (!product && variants.length) {
+      product = await upcItemDbLookup(variants[0]);
+    }
+    if (!product && slug) {
+      product = await offSearchByName(titleCaseSlug(slug));
+      if (product) method = "name-search";
     }
     if (product) {
       return {
@@ -378,7 +436,7 @@ const Importer = (() => {
         image: product.image_front_url || "",
         notes: [product.brands, product.quantity].filter(Boolean).join(" · "),
         purchaseUrl: url,
-        importMethod: "barcode",
+        importMethod: method,
       };
     }
 

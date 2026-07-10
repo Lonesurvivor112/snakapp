@@ -286,7 +286,8 @@
     try {
       const draft = await Importer.importProduct(url);
       const statusByMethod = {
-        "barcode": "Product found via barcode lookup (Open Food Facts) — review and save.",
+        "barcode": "Product found via barcode lookup — review and save.",
+        "name-search": "Barcode wasn't in the databases; matched by product name instead — double-check it's the right item.",
         "product-schema": "Product info found on the page — review and save.",
         "opengraph": "Got basic info from the page — review and save.",
         "slug": "Store blocks lookups and the barcode wasn't in the product database — name guessed from the URL. Add details and a picture.",
@@ -746,6 +747,128 @@
     renderPlan();
   });
 
+  /* ================= Grocery list ================= */
+
+  const grocerySelected = new Set(); // recipe ids picked for the next list (not persisted)
+
+  function renderGroceryPicker() {
+    grocerySelected.forEach(id => { if (!Storage.recipes.some(r => r.id === id)) grocerySelected.delete(id); });
+    $("#grocery-recipe-picker").innerHTML = Storage.recipes.map(r => `
+      <label class="grocery-pick">
+        <input type="checkbox" value="${r.id}" ${grocerySelected.has(r.id) ? "checked" : ""}>
+        ${esc(r.name)}
+      </label>`).join("") ||
+      `<p class="card-meta">No recipes yet — import some on the Recipes tab first.</p>`;
+  }
+
+  $("#grocery-recipe-picker").addEventListener("change", (e) => {
+    const cb = e.target.closest('input[type="checkbox"]');
+    if (!cb) return;
+    if (cb.checked) grocerySelected.add(cb.value);
+    else grocerySelected.delete(cb.value);
+  });
+
+  function renderGroceryList() {
+    const list = Storage.groceryList;
+    const hasList = !!(list && list.items && list.items.length);
+    $("#grocery-empty").classList.toggle("hidden", hasList);
+    if (!hasList) {
+      $("#grocery-list").innerHTML = "";
+      $("#grocery-progress").textContent = "";
+      return;
+    }
+    $("#grocery-list").innerHTML = list.items.map((item, i) => {
+      const amounts = Grocery.formatAmounts(item.amounts);
+      const fromLabel = item.from && item.from.length
+        ? (item.from.length === 1 ? item.from[0] : item.from.length + " recipes") : "";
+      return `
+        <li class="${item.checked ? "done" : ""}">
+          <label>
+            <input type="checkbox" data-idx="${i}" ${item.checked ? "checked" : ""}>
+            <span>${esc(item.name.charAt(0).toUpperCase() + item.name.slice(1))}
+              ${amounts ? `<strong class="grocery-amt">— ${esc(amounts)}</strong>` : ""}
+              ${fromLabel ? `<span class="card-meta grocery-from" title="${esc((item.from || []).join(", "))}">(${esc(fromLabel)})</span>` : ""}
+            </span>
+          </label>
+        </li>`;
+    }).join("");
+    const done = list.items.filter(i => i.checked).length;
+    $("#grocery-progress").textContent = `${done} of ${list.items.length} in the cart` +
+      (list.recipeNames && list.recipeNames.length ? ` · for ${list.recipeNames.length} recipe(s)` : "");
+  }
+
+  $("#grocery-list").addEventListener("change", (e) => {
+    const cb = e.target.closest("input[data-idx]");
+    if (!cb) return;
+    const list = Storage.groceryList;
+    if (!list) return;
+    list.items[cb.dataset.idx].checked = cb.checked;
+    Storage.setGroceryList(list);
+    renderGroceryList();
+  });
+
+  $("#grocery-generate-btn").addEventListener("click", () => {
+    const recipes = Storage.recipes.filter(r => grocerySelected.has(r.id));
+    if (!recipes.length) { toast("Tick at least one recipe first"); return; }
+    Storage.setGroceryList(Grocery.build(recipes));
+    renderGroceryList();
+    toast(`List built from ${recipes.length} recipe(s)`);
+  });
+
+  $("#grocery-from-plan-btn").addEventListener("click", () => {
+    const plan = Storage.lastDinnerPlan;
+    if (!plan || !plan.days.length) { toast("Generate a dinner plan first (Weekly Plan tab)"); return; }
+    grocerySelected.clear();
+    plan.days.forEach(d => {
+      if (Storage.recipes.some(r => r.id === d.recipeId)) grocerySelected.add(d.recipeId);
+    });
+    renderGroceryPicker();
+    toast(`Selected ${grocerySelected.size} recipe(s) from the dinner plan`);
+  });
+
+  $("#grocery-clear-sel-btn").addEventListener("click", () => {
+    grocerySelected.clear();
+    renderGroceryPicker();
+  });
+
+  $("#grocery-add-btn").addEventListener("click", () => {
+    const input = $("#grocery-add-input");
+    const name = input.value.trim();
+    if (!name) return;
+    const list = Storage.groceryList || { items: [], recipeNames: [], createdAt: new Date().toISOString() };
+    list.items.push({ name, amounts: {}, from: [], checked: false });
+    Storage.setGroceryList(list);
+    input.value = "";
+    renderGroceryList();
+  });
+  $("#grocery-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("#grocery-add-btn").click();
+  });
+
+  $("#grocery-copy-btn").addEventListener("click", async () => {
+    const list = Storage.groceryList;
+    if (!list || !list.items.length) { toast("Nothing to copy yet"); return; }
+    const text = ["Grocery list" + (list.recipeNames.length ? " — " + list.recipeNames.join(", ") : "") + ":"]
+      .concat(list.items.map(i => {
+        const amt = Grocery.formatAmounts(i.amounts);
+        return (i.checked ? "[x] " : "[ ] ") + i.name + (amt ? " — " + amt : "");
+      })).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Grocery list copied");
+    } catch (err) {
+      toast("Copy failed — clipboard blocked");
+    }
+  });
+
+  $("#grocery-clear-btn").addEventListener("click", () => {
+    if (!Storage.groceryList) return;
+    if (confirm("Clear the grocery list?")) {
+      Storage.setGroceryList(null);
+      renderGroceryList();
+    }
+  });
+
   /* ================= Collections ================= */
 
   function renderCollections() {
@@ -980,6 +1103,8 @@
     renderSnacks();
     renderRecipes();
     renderPlan();
+    renderGroceryPicker();
+    renderGroceryList();
     renderCollections();
   }
   renderAll();
