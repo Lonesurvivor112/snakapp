@@ -109,6 +109,7 @@
       <div class="plan-section-head hidden">
         <h2>🍿 Snacks</h2>
         <button id="reroll-snacks-btn" class="btn btn-ghost btn-small" title="Re-roll snacks with a new random seed">Re-roll</button>
+        <button id="clear-snackdays-btn" class="btn btn-ghost btn-small" title="Empty all 7 days (or start a blank week to fill by hand)">Clear days</button>
       </div>
       <div id="plan-grid" class="plan-grid"></div>
       <div class="plan-section-head hidden">
@@ -231,7 +232,20 @@
         </div>
         <p class="card-meta">
           Categories show up in the snack form and filters, and sync with your database.
-          Removing one doesn't change snacks already using it.
+          ✎ renames a category on every snack using it; ✕ removes it from this list only.
+        </p>
+      </div>
+
+      <div class="settings-card">
+        <h2>🔖 Tags</h2>
+        <div id="tag-chips" class="collection-items"></div>
+        <div class="toolbar" style="margin-top: 0.7rem">
+          <input type="text" id="tag-add-input" placeholder="New tag (e.g. crunchy, spicy, gluten-free)…">
+          <button id="tag-add-btn" class="btn btn-primary">Add</button>
+        </div>
+        <p class="card-meta">
+          Snacks can have many tags (typed in the snack form); new ones you type there are added
+          here automatically. ✎ renames a tag on every snack; ✕ removes it from every snack.
         </p>
       </div>
     </section>
