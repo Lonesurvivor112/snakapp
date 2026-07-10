@@ -249,6 +249,7 @@ main {
 .grocery-list-head .section-title { margin: 0; }
 .grocery-amt { color: var(--accent-dark); font-weight: 600; }
 .grocery-from { font-size: 0.78rem; }
+.grocery-detail { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.1rem; font-style: italic; }
 #grocery-list { max-width: 640px; }
 
 /* ---- Collections ---- */
