@@ -2,7 +2,7 @@
  * Strategy: network-first with cache fallback for same-origin files, so
  * deploys show up on the next load while the app still works offline.
  * Cross-origin requests (GitHub API, proxies, recipe images) pass through. */
-const CACHE = "snakapp-v5";
+const CACHE = "snakapp-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -40,8 +40,10 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        if (res.ok) { // never cache error pages over good copies
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
         return res;
       })
       .catch(() => caches.match(e.request, { ignoreSearch: true }))

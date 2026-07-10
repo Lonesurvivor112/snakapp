@@ -24,6 +24,12 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Remove iOS double-tap zoom delay on interactive elements */
+button, label, input, select, .tab-btn, .plan-day, .collection-chip {
+  touch-action: manipulation;
 }
 
 .hidden { display: none !important; }
@@ -35,6 +41,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 50;
+  padding-top: env(safe-area-inset-top);
 }
 .header-inner {
   max-width: 1100px;
@@ -241,6 +248,35 @@ main {
   padding: 0;
 }
 .chip-load:hover { color: var(--accent-dark); }
+
+/* ---- Daily plan ---- */
+.daily-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.9rem;
+}
+.daily-slot {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.9rem 1rem;
+}
+.daily-slot h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-dark);
+}
+.toolbar input[type="date"] {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
 
 /* ---- Product search picker ---- */
 .product-pick-grid {
@@ -501,6 +537,9 @@ main {
 
 @media (max-width: 700px) {
   .form-grid { grid-template-columns: 1fr; }
+
+  /* iOS Safari auto-zooms into any input with font-size < 16px — prevent it */
+  input, select, textarea { font-size: 16px !important; }
 
   /* Title + DB/Export buttons share the first row; tabs become their own
      full-width row that slides sideways instead of spilling off-screen */

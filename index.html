@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>SnakApp — Snack Catalog & Weekly Planner</title>
   <meta name="theme-color" content="#d96c2c">
   <link rel="manifest" href="manifest.webmanifest">
@@ -21,7 +21,9 @@
       <nav class="tabs">
         <button class="tab-btn active" data-tab="snacks">Snacks</button>
         <button class="tab-btn" data-tab="recipes">Recipes</button>
+        <button class="tab-btn" data-tab="lunches">Lunches</button>
         <button class="tab-btn" data-tab="plan">Weekly Plan</button>
+        <button class="tab-btn" data-tab="daily">Daily Plan</button>
         <button class="tab-btn" data-tab="grocery">Grocery</button>
         <button class="tab-btn" data-tab="collections">Collections</button>
         <button class="tab-btn" data-tab="settings">Settings</button>
@@ -122,6 +124,32 @@
       <div id="saved-weeks-row" class="collection-items saved-row"></div>
       <div id="dinner-grid" class="plan-grid"></div>
       <p id="plan-empty" class="empty-msg">No plan yet. Add snacks and recipes, then hit <strong>Generate Week</strong> for a full week of snacks and dinners.</p>
+    </section>
+
+    <!-- ============ LUNCHES TAB ============ -->
+    <section id="tab-lunches" class="tab-panel">
+      <div class="toolbar">
+        <button id="add-lunch-btn" class="btn btn-primary">+ Build a Lunch</button>
+      </div>
+      <div id="lunch-grid" class="card-grid"></div>
+      <p id="lunch-empty" class="empty-msg hidden">
+        No lunches yet. Build one from your snacks and recipes — then use it in a Daily Plan.
+      </p>
+    </section>
+
+    <!-- ============ DAILY PLAN TAB ============ -->
+    <section id="tab-daily" class="tab-panel">
+      <div class="toolbar">
+        <input type="date" id="daily-date">
+        <button id="daily-today-btn" class="btn btn-ghost">Today</button>
+        <button id="daily-suggest-btn" class="btn btn-primary">✨ Suggest Day</button>
+        <button id="daily-clear-btn" class="btn btn-ghost">Clear day</button>
+      </div>
+      <div id="daily-slots" class="daily-slots"></div>
+      <p class="card-meta" style="margin-top: 0.8rem">
+        Plan what you'll eat through the day — pick snacks, a built Lunch, a recipe, or type
+        anything. <strong>Suggest Day</strong> fills the slots from your catalog automatically.
+      </p>
     </section>
 
     <!-- ============ GROCERY TAB ============ -->
