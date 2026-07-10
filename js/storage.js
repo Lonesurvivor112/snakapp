@@ -26,13 +26,26 @@ const Storage = (() => {
     groceryList: null,       // { items: [{name, amounts, from, checked}], recipeNames, createdAt }
   });
 
+  /* Heal text damaged by an earlier import bug that split words after units
+   * ("2 teaspoon s garlic", "pound ed thin"). Idempotent; runs on every load. */
+  function repairSplitUnits(d) {
+    const fix = (s) => typeof s === "string"
+      ? s.replace(/\b(teaspoon|tablespoon|tsp|tbsp|cup|gram|kilogram|ounce|pound|liter|litre)\s+(s|ed)\b/gi, "$1$2")
+      : s;
+    (d.recipes || []).forEach(r => {
+      r.ingredients = (r.ingredients || []).map(fix);
+      r.instructions = (r.instructions || []).map(fix);
+    });
+    return d;
+  }
+
   let data = loadLocal();
 
   function loadLocal() {
     try {
       const raw = localStorage.getItem(KEY);
       if (!raw) return defaults();
-      return Object.assign(defaults(), JSON.parse(raw));
+      return repairSplitUnits(Object.assign(defaults(), JSON.parse(raw)));
     } catch (e) {
       console.warn("SnakApp: could not parse saved data, starting fresh.", e);
       return defaults();
@@ -147,7 +160,7 @@ const Storage = (() => {
     const text = await f.text();
     if (text.trim()) {
       const parsed = JSON.parse(text);
-      data = Object.assign(defaults(), parsed);
+      data = repairSplitUnits(Object.assign(defaults(), parsed));
       localStorage.setItem(KEY, JSON.stringify(data));
     } else {
       // brand-new empty file → seed it with whatever we have locally
@@ -371,7 +384,7 @@ const Storage = (() => {
 
   function applyRemote(remoteText) {
     const remote = JSON.parse(remoteText);
-    data = Object.assign(defaults(), remote);
+    data = repairSplitUnits(Object.assign(defaults(), remote));
     localStorage.setItem(KEY, JSON.stringify(data));
     reloadListeners.forEach(fn => fn());
   }
@@ -561,7 +574,7 @@ const Storage = (() => {
     if (!parsed || !Array.isArray(parsed.snacks) || !Array.isArray(parsed.recipes)) {
       throw new Error("File doesn't look like a SnakApp export.");
     }
-    data = Object.assign(defaults(), parsed);
+    data = repairSplitUnits(Object.assign(defaults(), parsed));
     save();
   }
 

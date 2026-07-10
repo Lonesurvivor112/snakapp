@@ -52,18 +52,76 @@ const Grocery = (() => {
   }
 
   /* Strip prep words so "shredded Monterey Jack cheese, divided" and
-   * "Monterey Jack cheese" merge into one grocery item */
+   * "Monterey Jack cheese" merge into one grocery item. Descriptors are removed
+   * BEFORE splitting on commas so "skinless, boneless chicken breast halves"
+   * resolves to "chicken breast halves", not "skinless". */
+  const ADJ = /\b(chopped|minced|sliced|diced|shredded|grated|melted|softened|cooked|beaten|peeled|crushed|cubed|trimmed|halved|quartered|pounded|skinless|boneless|seedless|lean|ripe|thin|thinly|fresh|freshly|finely|coarsely|roughly|lightly|divided|drained|rinsed|packed|heaping|level|optional|large|medium|small|extra)\b/g;
+
   function normalizeName(name) {
-    return name.toLowerCase()
+    let n = name.toLowerCase()
       .replace(/\([^)]*\)/g, " ")
-      .split(",")[0]
-      .replace(/\b(chopped|minced|sliced|diced|shredded|grated|melted|softened|cooked|beaten|peeled|crushed|cubed|trimmed|halved|quartered|fresh|freshly|finely|thinly|coarsely|roughly|lightly|divided|drained|rinsed|packed|heaping|level|optional|large|medium|small|extra|plus more.*|or more.*|to taste|as needed|for garnish|for serving)\b/g, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim();
+      .replace(/,?\s*\b(plus more.*|or more.*|or to taste|to taste|or as needed|as needed|for garnish|for serving)\b/g, " ")
+      .replace(ADJ, " ")
+      .replace(/\bs\b/g, " ") // orphan "s" left behind by older imports
+      .replace(/\s{2,}/g, " ");
+    const seg = n.split(",")
+      .map(s => s.replace(/^[\s\-–—]+|[\s\-–—]+$/g, "").trim())
+      .filter(Boolean)[0] || "";
+    return seg.replace(/\s{2,}/g, " ").trim();
+  }
+
+  /* ---- Core shopping items ----
+   * You don't buy "4 skinless boneless chicken breast halves" — you buy
+   * Chicken. These rules collapse variants onto one buyable item, estimate a
+   * purchase weight for meats, and keep the recipes' exact wording as detail.
+   * The exclusion regex keeps derived products (chicken broth, garlic powder,
+   * tomato paste) as their own separate items. */
+  const EXCLUDE_CORE = /\b(broth|stock|bouillon|powder|powdered|seasoning|salt|sauce|soup|base|gravy|flavored|extract|paste|noodles?|pasta|juice|syrup)\b/;
+
+  const CORE_RULES = [
+    { label: "Green onions", re: /\b(green onions?|scallions?|spring onions?)\b/ },
+    { label: "Chicken", re: /\bchicken\b/, defaultPerPiece: 0.5,
+      perLb: [[/breast hal(f|ves)/, 0.5], [/breasts?/, 0.65], [/thighs?/, 0.35], [/drumsticks?|legs?/, 0.3], [/wings?/, 0.25], [/whole/, 4]] },
+    { label: "Ground beef", re: /\b(ground beef|beef mince|minced beef)\b/, weight: true },
+    { label: "Beef", re: /\b(beef|steaks?|sirloin|chuck|brisket)\b/, defaultPerPiece: 0.75, perLb: [[/steaks?/, 0.75]] },
+    { label: "Pork", re: /\bpork\b/, defaultPerPiece: 0.5, perLb: [[/chops?/, 0.5]] },
+    { label: "Turkey", re: /\bturkey\b/, weight: true },
+    { label: "Bacon", re: /\bbacon\b/, defaultPerPiece: 0.06, perLb: [[/slices?|strips?/, 0.06]] },
+    { label: "Salmon", re: /\bsalmon\b/, defaultPerPiece: 0.4, perLb: [[/fillets?/, 0.4]] },
+    { label: "Shrimp", re: /\b(shrimp|prawns?)\b/, weight: true },
+    { label: "Eggs", re: /\beggs?\b/ },
+    { label: "Garlic", re: /\bgarlic\b/, cloves: true },
+    { label: "Onions", re: /\bonions?\b/ },
+    { label: "Tomatoes", re: /\btomato(es)?\b/ },
+    { label: "Potatoes", re: /\bpotato(es)?\b/ },
+    { label: "Carrots", re: /\bcarrots?\b/ },
+  ];
+
+  /* Sum a meat's entries into pounds: real weights convert directly, piece
+   * counts use the per-piece weights above. "+" marks a partial estimate. */
+  function estimatePounds(rule, entries) {
+    let lb = 0, partial = false;
+    for (const e of entries) {
+      const q = e.qty != null ? e.qty : 1;
+      if (e.unit === "lb") lb += q;
+      else if (e.unit === "oz") lb += q / 16;
+      else if (e.unit === "kg") lb += q * 2.20462;
+      else if (e.unit === "g") lb += q / 453.6;
+      else if (!e.unit) {
+        let per = rule.defaultPerPiece || 0;
+        for (const [re, w] of rule.perLb || []) { if (re.test(e.name)) { per = w; break; } }
+        if (per) lb += q * per; else partial = true;
+      } else partial = true; // "2 cups shredded chicken" — can't convert
+    }
+    if (!lb) return null;
+    const rounded = Math.max(0.25, Math.round(lb * 4) / 4);
+    return "≈ " + formatQty(rounded) + " lb" + (partial ? "+" : "");
   }
 
   function parseIngredient(raw) {
-    let s = String(raw).trim();
+    // heal "teaspoon s" / "pound ed" damage from older imports before parsing
+    let s = String(raw).trim()
+      .replace(/\b(teaspoon|tablespoon|tsp|tbsp|cup|gram|kilogram|ounce|pound|liter|litre)\s+(s|ed)\b/gi, "$1$2");
     let qty = null;
 
     const tok = parseNumberToken(s);
@@ -122,19 +180,39 @@ const Grocery = (() => {
     recipes.forEach(r => (r.ingredients || []).forEach(line => {
       const p = parseIngredient(line);
       if (!p.name) return;
-      let item = map.get(p.name);
+      const rule = EXCLUDE_CORE.test(p.name) ? null : CORE_RULES.find(rl => rl.re.test(p.name));
+      const key = rule ? "core:" + rule.label : p.name;
+      let item = map.get(key);
       if (!item) {
-        item = { name: p.name, amounts: {}, from: [], checked: false };
-        map.set(p.name, item);
+        item = { name: rule ? rule.label : p.name, amounts: {}, from: [], details: [], entries: [], core: !!rule, checked: false };
+        map.set(key, item);
       }
       if (p.qty != null) {
         const unit = p.unit || "x";
         item.amounts[unit] = (item.amounts[unit] || 0) + p.qty;
       }
+      item.entries.push(p);
+      // Keep the recipe's exact wording so quantities can be judged in-store
+      if (rule && p.name !== rule.label.toLowerCase()) {
+        item.details.push(String(line).trim() + " (" + r.name + ")");
+      }
       if (!item.from.includes(r.name)) item.from.push(r.name);
     }));
+
+    const items = [...map.values()].map(item => {
+      const rule = item.core ? CORE_RULES.find(rl => rl.label === item.name) : null;
+      if (rule && (rule.perLb || rule.defaultPerPiece || rule.weight)) {
+        item.est = estimatePounds(rule, item.entries);
+      } else if (rule && rule.cloves) {
+        const cloves = item.amounts["clove"];
+        if (cloves) item.est = "≈ " + Math.ceil(cloves / 10) + (cloves > 10 ? " heads" : " head");
+      }
+      delete item.entries; // parse internals — don't persist
+      return item;
+    });
+
     return {
-      items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      items: items.sort((a, b) => a.name.localeCompare(b.name)),
       recipeNames: recipes.map(r => r.name),
       createdAt: new Date().toISOString(),
     };

@@ -778,16 +778,19 @@
       return;
     }
     $("#grocery-list").innerHTML = list.items.map((item, i) => {
-      const amounts = Grocery.formatAmounts(item.amounts);
+      const amounts = item.est || Grocery.formatAmounts(item.amounts);
       const fromLabel = item.from && item.from.length
         ? (item.from.length === 1 ? item.from[0] : item.from.length + " recipes") : "";
+      const details = (item.details && item.details.length)
+        ? `<div class="grocery-detail">as written: ${esc(item.details.join(" · "))}</div>` : "";
       return `
         <li class="${item.checked ? "done" : ""}">
           <label>
             <input type="checkbox" data-idx="${i}" ${item.checked ? "checked" : ""}>
             <span>${esc(item.name.charAt(0).toUpperCase() + item.name.slice(1))}
               ${amounts ? `<strong class="grocery-amt">— ${esc(amounts)}</strong>` : ""}
-              ${fromLabel ? `<span class="card-meta grocery-from" title="${esc((item.from || []).join(", "))}">(${esc(fromLabel)})</span>` : ""}
+              ${fromLabel && !details ? `<span class="card-meta grocery-from" title="${esc((item.from || []).join(", "))}">(${esc(fromLabel)})</span>` : ""}
+              ${details}
             </span>
           </label>
         </li>`;
@@ -850,8 +853,9 @@
     if (!list || !list.items.length) { toast("Nothing to copy yet"); return; }
     const text = ["Grocery list" + (list.recipeNames.length ? " — " + list.recipeNames.join(", ") : "") + ":"]
       .concat(list.items.map(i => {
-        const amt = Grocery.formatAmounts(i.amounts);
-        return (i.checked ? "[x] " : "[ ] ") + i.name + (amt ? " — " + amt : "");
+        const amt = i.est || Grocery.formatAmounts(i.amounts);
+        return (i.checked ? "[x] " : "[ ] ") + i.name + (amt ? " — " + amt : "") +
+          (i.details && i.details.length ? "  (as written: " + i.details.join("; ") + ")" : "");
       })).join("\n");
     try {
       await navigator.clipboard.writeText(text);

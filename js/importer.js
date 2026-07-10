@@ -36,7 +36,10 @@ const Importer = (() => {
       .replace(/\*\*|__/g, "")
       .replace(/(\d)\(/g, "$1 (")            // "1(4 ounce)" → "1 (4 ounce)"
       .replace(/\)(?=[A-Za-z])/g, ") ")      // ")onion" → ") onion"
-      .replace(/\b(teaspoons?|tablespoons?|tsps?|tbsps?|cups?|grams?|ounces?|pounds?|litres?|liters?)(?=[A-Za-z])/gi, "$1 ")
+      // un-glue a unit from the following word ("3 tablespooncurd" → "3 tablespoon curd"),
+      // but only right after a number, and never by splitting a real word's own
+      // plural/suffix ("2 teaspoons garlic" and "pounded thin" must stay intact)
+      .replace(/(\d\s*)(teaspoons?|tablespoons?|tsps?|tbsps?|cups?|grams?|kilograms?|ounces?|pounds?|litres?|liters?)(?!s\b)(?=[A-Za-z])/gi, "$1$2 ")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
