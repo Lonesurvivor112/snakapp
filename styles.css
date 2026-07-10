@@ -218,6 +218,53 @@ main {
 .plan-section-head h2 { margin: 0; font-size: 1.1rem; }
 .plan-day-clickable { cursor: pointer; transition: box-shadow 0.15s; }
 .plan-day-clickable:hover { box-shadow: 0 3px 12px rgba(43, 38, 32, 0.18); }
+.day-actions { float: right; display: inline-flex; gap: 2px; }
+.day-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 0 3px;
+  line-height: 1;
+}
+.day-btn:hover { color: var(--accent-dark); }
+.plan-empty-day { font-style: italic; }
+.saved-row { margin: 0 0 0.8rem; }
+.saved-row:empty { display: none; }
+.chip-load {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text);
+  padding: 0;
+}
+.chip-load:hover { color: var(--accent-dark); }
+
+/* ---- Product search picker ---- */
+.product-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+.product-pick {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.5rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  align-items: center;
+  text-align: center;
+  font-size: 0.85rem;
+}
+.product-pick img { width: 84px; height: 84px; object-fit: contain; }
+.product-pick-noimg { font-size: 2.4rem; line-height: 84px; }
+.product-pick:hover { border-color: var(--accent); background: var(--accent-soft); }
 
 /* ---- Grocery ---- */
 .section-title { font-size: 1.1rem; margin: 0 0 0.6rem; }

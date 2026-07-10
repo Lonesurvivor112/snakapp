@@ -41,8 +41,8 @@
     <!-- ============ SNACKS TAB ============ -->
     <section id="tab-snacks" class="tab-panel active">
       <div class="toolbar">
-        <input type="url" id="snack-import-url" placeholder="Paste a product URL (e.g. from kroger.com) to import a snack…">
-        <button id="snack-import-btn" class="btn btn-primary">Import Product</button>
+        <input type="text" id="snack-import-url" placeholder="Paste a product URL or type a snack name (e.g. Blazin' Hot Cheddar Cheezmos)…">
+        <button id="snack-import-btn" class="btn btn-primary">Import</button>
       </div>
       <p id="snack-import-status" class="import-status hidden"></p>
       <div class="toolbar toolbar-sub">
@@ -114,7 +114,10 @@
       <div class="plan-section-head hidden">
         <h2>🍽️ Dinners</h2>
         <button id="reroll-dinners-btn" class="btn btn-ghost btn-small" title="Re-roll dinners with a new random seed">Re-roll</button>
+        <button id="clear-dinners-btn" class="btn btn-ghost btn-small" title="Empty all 7 days (or start a blank week to fill by hand)">Clear days</button>
+        <button id="save-week-btn" class="btn btn-ghost btn-small" title="Save this week's dinners under a name">💾 Save week</button>
       </div>
+      <div id="saved-weeks-row" class="collection-items saved-row"></div>
       <div id="dinner-grid" class="plan-grid"></div>
       <p id="plan-empty" class="empty-msg">No plan yet. Add snacks and recipes, then hit <strong>Generate Week</strong> for a full week of snacks and dinners.</p>
     </section>
@@ -125,7 +128,7 @@
       <div id="grocery-recipe-picker" class="grocery-picker"></div>
       <div class="toolbar">
         <button id="grocery-generate-btn" class="btn btn-primary">🛒 Generate List</button>
-        <button id="grocery-from-plan-btn" class="btn btn-ghost" title="Select every recipe in this week's dinner plan">Use dinner plan</button>
+        <button id="grocery-from-plan-btn" class="btn btn-ghost" title="Tick every recipe that's in this week's dinner plan (Weekly Plan tab)">Add this week's dinners</button>
         <button id="grocery-clear-sel-btn" class="btn btn-ghost">Clear selection</button>
       </div>
 
@@ -133,8 +136,10 @@
         <h2 class="section-title">2. Your list</h2>
         <span id="grocery-progress" class="card-meta"></span>
         <button id="grocery-copy-btn" class="btn btn-ghost btn-small">Copy</button>
+        <button id="grocery-save-btn" class="btn btn-ghost btn-small" title="Save this list under a name to reuse later">💾 Save for later</button>
         <button id="grocery-clear-btn" class="btn btn-danger btn-small">Clear list</button>
       </div>
+      <div id="saved-grocery-row" class="collection-items saved-row"></div>
       <div class="toolbar">
         <input type="text" id="grocery-add-input" placeholder="Add your own item (e.g. paper towels)…">
         <button id="grocery-add-btn" class="btn btn-ghost">Add</button>
@@ -207,12 +212,26 @@
         </div>
         <div class="settings-actions">
           <button id="cloud-connect-btn" class="btn btn-primary">Connect Cloud Database</button>
+          <button id="cloud-sync-now-btn" class="btn btn-primary hidden" title="Push/pull immediately so you can close knowing everything is saved">⟳ Sync Now</button>
           <button id="cloud-disconnect-btn" class="btn btn-danger hidden">Disconnect</button>
         </div>
         <p class="card-meta">
           Syncs your whole database to a JSON file in your private GitHub repo — works on every
           device, including iPhone. Changes save automatically and other devices pick them up
           within a minute. The token is stored only on this device.
+        </p>
+      </div>
+
+      <div class="settings-card">
+        <h2>🏷️ Snack Categories</h2>
+        <div id="category-chips" class="collection-items"></div>
+        <div class="toolbar" style="margin-top: 0.7rem">
+          <input type="text" id="category-add-input" placeholder="New category (e.g. Crackers, Nuts, Breads)…">
+          <button id="category-add-btn" class="btn btn-primary">Add</button>
+        </div>
+        <p class="card-meta">
+          Categories show up in the snack form and filters, and sync with your database.
+          Removing one doesn't change snacks already using it.
         </p>
       </div>
     </section>
