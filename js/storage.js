@@ -21,9 +21,12 @@ const Storage = (() => {
     collections: [],
     lastPlan: null,          // { seed, days: [{ day, snackId }] }
     prevPlanSnackIds: [],    // snack ids used in the plan before the current one
-    lastDinnerPlan: null,    // { seed, days: [{ day, recipeId }] }
+    lastDinnerPlan: null,    // { seed, days: [{ day, recipeId, customText }] }
     prevDinnerRecipeIds: [],
     groceryList: null,       // { items: [{name, amounts, from, checked}], recipeNames, createdAt }
+    savedGroceryLists: [],   // [{ id, name, savedAt, list }]
+    savedDinnerPlans: [],    // [{ id, name, savedAt, days }]
+    categories: ["sweet", "savory", "salty", "healthy", "drink", "other"],
   });
 
   /* Heal text damaged by an earlier import bug that split words after units
@@ -455,6 +458,25 @@ const Storage = (() => {
     }, CLOUD_POLL_MS);
   }
 
+  /* Manual "Sync Now": pull if the cloud is newer, otherwise push — then the
+   * user can safely close knowing everything is up to date */
+  async function syncNow() {
+    if (!cloudCfg) throw new Error("No cloud database connected.");
+    clearTimeout(cloudWriteTimer);
+    cloudStatus = "syncing";
+    notifyCloud();
+    try {
+      await syncFromCloud({ preferRemoteWhenEqual: false });
+      cloudStatus = "connected";
+      cloudLastSyncedAt = new Date();
+      notifyCloud();
+    } catch (e) {
+      cloudStatus = "error";
+      notifyCloud();
+      throw e;
+    }
+  }
+
   async function initCloudSync() {
     const raw = localStorage.getItem(CLOUD_KEY);
     if (!raw) { notifyCloud(); return; }
@@ -559,9 +581,68 @@ const Storage = (() => {
     save();
   }
 
+  /* Replace the dinner plan without touching lastPlannedAt / previous-week
+   * tracking — used for manual day edits and loading saved weeks */
+  function updateDinnerPlan(plan) {
+    data.lastDinnerPlan = plan;
+    save();
+  }
+
+  function saveDinnerPlanAs(name) {
+    if (!data.lastDinnerPlan) return null;
+    const entry = {
+      id: uid(), name, savedAt: new Date().toISOString(),
+      days: JSON.parse(JSON.stringify(data.lastDinnerPlan.days)),
+    };
+    data.savedDinnerPlans.push(entry);
+    save();
+    return entry;
+  }
+  function loadSavedDinnerPlan(id) {
+    const e = data.savedDinnerPlans.find(p => p.id === id);
+    if (e) {
+      data.lastDinnerPlan = { seed: 0, days: JSON.parse(JSON.stringify(e.days)), notes: [] };
+      save();
+    }
+    return e;
+  }
+  function deleteSavedDinnerPlan(id) {
+    data.savedDinnerPlans = data.savedDinnerPlans.filter(p => p.id !== id);
+    save();
+  }
+
   /* ================= Grocery list ================= */
   function setGroceryList(list) {
     data.groceryList = list;
+    save();
+  }
+
+  function saveGroceryListAs(name) {
+    if (!data.groceryList) return null;
+    const entry = {
+      id: uid(), name, savedAt: new Date().toISOString(),
+      list: JSON.parse(JSON.stringify(data.groceryList)),
+    };
+    data.savedGroceryLists.push(entry);
+    save();
+    return entry;
+  }
+  function loadSavedGroceryList(id) {
+    const e = data.savedGroceryLists.find(l => l.id === id);
+    if (e) {
+      data.groceryList = JSON.parse(JSON.stringify(e.list));
+      save();
+    }
+    return e;
+  }
+  function deleteSavedGroceryList(id) {
+    data.savedGroceryLists = data.savedGroceryLists.filter(l => l.id !== id);
+    save();
+  }
+
+  /* ================= Categories ================= */
+  function setCategories(arr) {
+    data.categories = arr;
     save();
   }
 
@@ -587,7 +668,12 @@ const Storage = (() => {
     get lastDinnerPlan() { return data.lastDinnerPlan; },
     get prevDinnerRecipeIds() { return data.prevDinnerRecipeIds; },
     get groceryList() { return data.groceryList; },
-    setGroceryList,
+    get savedGroceryLists() { return data.savedGroceryLists; },
+    get savedDinnerPlans() { return data.savedDinnerPlans; },
+    get categories() { return data.categories; },
+    setGroceryList, saveGroceryListAs, loadSavedGroceryList, deleteSavedGroceryList,
+    updateDinnerPlan, saveDinnerPlanAs, loadSavedDinnerPlan, deleteSavedDinnerPlan,
+    setCategories,
     addSnack, updateSnack, deleteSnack,
     addRecipe, updateRecipe, deleteRecipe,
     addCollection, deleteCollection, addToCollection, removeFromCollection,
@@ -596,6 +682,6 @@ const Storage = (() => {
     initFileSync, connectFile, createFile, reconnect, disconnectFile,
     onFileStatus, onDataReloaded, fileInfo,
     // GitHub cloud sync
-    initCloudSync, connectCloud, disconnectCloud, onCloudStatus, cloudInfo,
+    initCloudSync, connectCloud, disconnectCloud, onCloudStatus, cloudInfo, syncNow,
   };
 })();

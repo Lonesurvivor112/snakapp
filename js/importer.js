@@ -472,5 +472,32 @@ const Importer = (() => {
     throw new Error("Couldn't extract product info from that URL.");
   }
 
-  return { importFromUrl, importProduct, parseHtml, durationToMinutes };
+  /* Search the food database by name and return candidates for the user to
+   * pick from (used when the snack import field gets a name instead of a URL) */
+  async function searchProducts(query) {
+    const raw = await fetchText(
+      "https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=8" +
+      "&fields=product_name,brands,image_front_url,quantity,categories_tags_en" +
+      "&search_terms=" + encodeURIComponent(query), 15000);
+    const json = JSON.parse(raw);
+    const seen = new Set();
+    return (json.products || [])
+      .filter(p => p.product_name)
+      .filter(p => {
+        const k = (p.product_name + "|" + (p.brands || "")).toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, 6)
+      .map(p => ({
+        name: cleanupLine(p.product_name),
+        brand: p.brands || "",
+        image: p.image_front_url || "",
+        quantity: p.quantity || "",
+        category: guessCategory(p.categories_tags_en),
+      }));
+  }
+
+  return { importFromUrl, importProduct, searchProducts, parseHtml, durationToMinutes };
 })();

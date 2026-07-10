@@ -1,7 +1,10 @@
 /* ============ SnakApp UI ============ */
 (() => {
 
-  const CATEGORIES = ["sweet", "savory", "salty", "healthy", "drink", "other"];
+  /* User-editable (Settings tab); union with in-use values so nothing vanishes */
+  function allCategories() {
+    return [...new Set([...Storage.categories, ...Storage.snacks.map(s => s.category).filter(Boolean)])];
+  }
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
@@ -132,7 +135,7 @@
         <div class="form-field">
           <label>Category</label>
           <select name="category">
-            ${CATEGORIES.map(c => `<option value="${c}" ${snack.category === c ? "selected" : ""}>${c}</option>`).join("")}
+            ${allCategories().map(c => `<option value="${esc(c)}" ${snack.category === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
           </select>
         </div>
         <div class="form-field">
@@ -224,8 +227,10 @@
         </div>
         <div class="card-actions">
           <button class="btn btn-ghost btn-small" data-action="edit">Edit</button>
-          <button class="btn btn-ghost btn-small" data-action="collect">+ Collection</button>
-          ${snack.recipeId ? `<button class="btn btn-ghost btn-small" data-action="view-recipe">Recipe</button>` : ""}
+          <button class="btn btn-ghost btn-small" data-action="collect">Add to Collection</button>
+          ${snack.recipeId
+            ? `<button class="btn btn-ghost btn-small" data-action="view-recipe">Recipe</button>`
+            : `<button class="btn btn-ghost btn-small" data-action="make-recipe" title="Create a linked recipe from this snack">+ Recipe</button>`}
           <button class="btn btn-danger btn-small" data-action="delete">Delete</button>
         </div>
       </div>`;
@@ -258,7 +263,7 @@
     const catSel = $("#snack-filter-category");
     const current = catSel.value;
     catSel.innerHTML = `<option value="">All categories</option>` +
-      CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
+      allCategories().map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
     catSel.value = current;
 
     const tagSel = $("#snack-filter-tag");
@@ -279,9 +284,56 @@
     el.classList.remove("hidden");
   }
 
+  function openProductPicker(results, query) {
+    openModal(`
+      <h2>Results for “${esc(query)}”</h2>
+      <p class="card-meta">Tap the right product — then review and save.</p>
+      <div class="product-pick-grid">
+        ${results.map((p, i) => `
+          <button class="product-pick" data-i="${i}">
+            ${p.image ? `<img src="${esc(p.image)}" alt="" onerror="this.remove()">` : `<div class="product-pick-noimg">🛍️</div>`}
+            <span>${esc(p.name)}</span>
+            <span class="card-meta">${esc([p.brand, p.quantity].filter(Boolean).join(" · "))}</span>
+          </button>`).join("")}
+      </div>`);
+    $("#modal-content").addEventListener("click", (e) => {
+      const btn = e.target.closest(".product-pick");
+      if (!btn) return;
+      const p = results[+btn.dataset.i];
+      setSnackImportStatus("Review and save.");
+      openSnackForm(null, {
+        name: p.name,
+        category: p.category,
+        image: p.image,
+        notes: [p.brand, p.quantity].filter(Boolean).join(" · "),
+        purchaseUrl: "",
+        tags: [],
+      });
+    });
+  }
+
   $("#snack-import-btn").addEventListener("click", async () => {
     const url = $("#snack-import-url").value.trim();
-    if (!url) { setSnackImportStatus("Paste a product URL first.", true); return; }
+    if (!url) { setSnackImportStatus("Paste a product URL or type a snack name first.", true); return; }
+
+    // Plain text (not a URL) → search the food database by name
+    if (!/^https?:\/\//i.test(url)) {
+      setSnackImportStatus("Searching for “" + url + "”…");
+      try {
+        const results = await Importer.searchProducts(url);
+        if (!results.length) {
+          setSnackImportStatus("No matches for that name — try adding the brand, or paste a product URL.", true);
+          return;
+        }
+        setSnackImportStatus(`Found ${results.length} match(es) — pick the right one.`);
+        openProductPicker(results, url);
+        $("#snack-import-url").value = "";
+      } catch (err) {
+        setSnackImportStatus("Search failed: " + err.message, true);
+      }
+      return;
+    }
+
     setSnackImportStatus("Looking up product…");
     try {
       const draft = await Importer.importProduct(url);
@@ -329,6 +381,13 @@
         if (recipe) openRecipeDetail(recipe);
         break;
       }
+      case "make-recipe":
+        openRecipeForm(null, { name: snack.name, image: snack.image || "" }, (created) => {
+          Storage.updateSnack(snack.id, { recipeId: created.id, homemade: true });
+          renderSnacks();
+          toast("Recipe created and linked to this snack");
+        });
+        break;
       case "collect":
         openAddToCollection(snack);
         break;
@@ -362,7 +421,7 @@
           <button class="btn btn-ghost btn-small" data-action="view">View</button>
           <button class="btn btn-ghost btn-small" data-action="edit">Edit</button>
           <button class="btn btn-ghost btn-small" data-action="copy">Copy</button>
-          <button class="btn btn-ghost btn-small" data-action="to-catalog">→ Catalog</button>
+          <button class="btn btn-ghost btn-small" data-action="to-catalog" title="Add this recipe to your snack catalog">+ Snacks</button>
           <button class="btn btn-danger btn-small" data-action="delete">Delete</button>
         </div>
       </div>`;
@@ -493,7 +552,7 @@
       </form>`;
   }
 
-  function openRecipeForm(recipe, importedDraft) {
+  function openRecipeForm(recipe, importedDraft, onSaved) {
     const source = recipe || importedDraft || {};
     openModal(recipeFormHtml(source));
     $("#recipe-cancel").addEventListener("click", closeModal);
@@ -521,8 +580,9 @@
         values.nutrition = source.nutrition || "";
         values.rawSchema = source.rawSchema || null;
         values.importMethod = source.importMethod || "manual";
-        Storage.addRecipe(values);
+        const created = Storage.addRecipe(values);
         toast("Recipe saved");
+        if (onSaved) onSaved(created);
       }
       closeModal();
       renderRecipes();
@@ -671,7 +731,7 @@
     const dinnerPlan = Storage.lastDinnerPlan;
     const hasAny = !!((snackPlan && snackPlan.days.length) || (dinnerPlan && dinnerPlan.days.length));
     $("#plan-empty").classList.toggle("hidden", hasAny);
-    $$(".plan-section-head").forEach(h => h.classList.toggle("hidden", !hasAny));
+    $$(".plan-section-head").forEach(h => h.classList.remove("hidden"));
 
     $("#plan-grid").innerHTML = ((snackPlan && snackPlan.days) || []).map(d => {
       const snack = Storage.snacks.find(s => s.id === d.snackId);
@@ -685,24 +745,135 @@
         </div>`;
     }).join("");
 
-    $("#dinner-grid").innerHTML = ((dinnerPlan && dinnerPlan.days) || []).map(d => {
-      const recipe = Storage.recipes.find(r => r.id === d.recipeId);
-      if (!recipe) return `<div class="plan-day"><h3>${d.day}</h3><span class="card-meta">(recipe removed)</span></div>`;
-      return `
-        <div class="plan-day plan-day-clickable" data-recipe="${recipe.id}" title="Open recipe">
-          <h3>${d.day}</h3>
+    $("#dinner-grid").innerHTML = ((dinnerPlan && dinnerPlan.days) || []).map((d, i) => {
+      const recipe = d.recipeId ? Storage.recipes.find(r => r.id === d.recipeId) : null;
+      const dayButtons = `
+        <span class="day-actions">
+          <button class="day-btn" data-action="edit-day" title="Set this day's dinner">✎</button>
+          <button class="day-btn" data-action="clear-day" title="Clear this day">✕</button>
+        </span>`;
+      let body;
+      if (d.customText) {
+        body = `<span class="plan-snack">${esc(d.customText)}</span><span class="card-meta">custom</span>`;
+      } else if (recipe) {
+        body = `
           ${recipe.image ? `<img src="${esc(recipe.image)}" alt="" onerror="this.remove()">` : ""}
           <span class="plan-snack">${esc(recipe.name)}</span>
-          <span class="card-meta">${recipe.totalTime ? "⏱ " + minutesLabel(recipe.totalTime) : (recipe.ingredients || []).length + " ingredients"}</span>
+          <span class="card-meta">${recipe.totalTime ? "⏱ " + minutesLabel(recipe.totalTime) : (recipe.ingredients || []).length + " ingredients"}</span>`;
+      } else {
+        body = `<span class="card-meta plan-empty-day">— empty —</span>`;
+      }
+      return `
+        <div class="plan-day ${recipe ? "plan-day-clickable" : ""}" data-day-idx="${i}"
+             ${recipe ? `data-recipe="${recipe.id}" title="Open recipe"` : ""}>
+          <h3>${d.day}${dayButtons}</h3>
+          ${body}
         </div>`;
     }).join("");
+
+    renderSavedWeeks();
+  }
+
+  function renderSavedWeeks() {
+    $("#saved-weeks-row").innerHTML = Storage.savedDinnerPlans.map(p => `
+      <span class="collection-chip">
+        <button class="chip-load" data-load-week="${p.id}" title="Load this week">↺ ${esc(p.name)}</button>
+        <button data-del-week="${p.id}" title="Delete saved week">✕</button>
+      </span>`).join("");
+  }
+
+  /* Blank 7-day scaffold for building a week by hand */
+  function blankDinnerPlan() {
+    return { seed: 0, days: Planner.DAYS.map(day => ({ day, recipeId: null, customText: null })), notes: [] };
+  }
+
+  function openEditDinnerDay(plan, i) {
+    const d = plan.days[i];
+    openModal(`
+      <h2>${d.day} dinner</h2>
+      <div class="form-field">
+        <label>Pick a recipe</label>
+        <select id="day-recipe">
+          <option value="">— none —</option>
+          ${Storage.recipes.map(r => `<option value="${r.id}" ${d.recipeId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="form-field" style="margin-top: 0.6rem">
+        <label>…or type a custom dinner (overrides the recipe pick)</label>
+        <input id="day-custom" value="${esc(d.customText || "")}" placeholder="e.g. Leftovers, Pizza night, Eating out">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="day-cancel">Cancel</button>
+        <button class="btn btn-primary" id="day-save">Save</button>
+      </div>`);
+    $("#day-cancel").addEventListener("click", closeModal);
+    $("#day-save").addEventListener("click", () => {
+      const custom = $("#day-custom").value.trim();
+      const rid = $("#day-recipe").value;
+      plan.days[i] = { day: d.day, recipeId: custom ? null : (rid || null), customText: custom || null };
+      Storage.updateDinnerPlan(plan);
+      closeModal();
+      renderPlan();
+    });
   }
 
   $("#dinner-grid").addEventListener("click", (e) => {
+    const actionBtn = e.target.closest("[data-action]");
+    const dayCard = e.target.closest("[data-day-idx]");
+    const plan = Storage.lastDinnerPlan;
+    if (actionBtn && dayCard && plan) {
+      const i = +dayCard.dataset.dayIdx;
+      if (actionBtn.dataset.action === "clear-day") {
+        plan.days[i] = { day: plan.days[i].day, recipeId: null, customText: null };
+        Storage.updateDinnerPlan(plan);
+        renderPlan();
+      } else if (actionBtn.dataset.action === "edit-day") {
+        openEditDinnerDay(plan, i);
+      }
+      return;
+    }
     const card = e.target.closest("[data-recipe]");
     if (!card) return;
     const recipe = Storage.recipes.find(r => r.id === card.dataset.recipe);
     if (recipe) openRecipeDetail(recipe);
+  });
+
+  $("#clear-dinners-btn").addEventListener("click", () => {
+    const plan = Storage.lastDinnerPlan;
+    if (plan && plan.days.some(d => d.recipeId || d.customText)) {
+      if (!confirm("Empty all 7 dinner days?")) return;
+    }
+    Storage.updateDinnerPlan(blankDinnerPlan());
+    renderPlan();
+  });
+
+  $("#save-week-btn").addEventListener("click", () => {
+    const plan = Storage.lastDinnerPlan;
+    if (!plan || !plan.days.some(d => d.recipeId || d.customText)) { toast("Nothing to save — the week is empty"); return; }
+    const name = prompt("Name this week:", "Week of " + new Date().toLocaleDateString());
+    if (!name || !name.trim()) return;
+    Storage.saveDinnerPlanAs(name.trim());
+    renderSavedWeeks();
+    toast("Week saved");
+  });
+
+  $("#saved-weeks-row").addEventListener("click", (e) => {
+    const load = e.target.closest("[data-load-week]");
+    const del = e.target.closest("[data-del-week]");
+    if (load) {
+      const current = Storage.lastDinnerPlan;
+      if (current && current.days.some(d => d.recipeId || d.customText) &&
+          !confirm("Replace the current week's dinners with this saved week?")) return;
+      Storage.loadSavedDinnerPlan(load.dataset.loadWeek);
+      renderPlan();
+      toast("Saved week loaded");
+    } else if (del) {
+      const p = Storage.savedDinnerPlans.find(p => p.id === del.dataset.delWeek);
+      if (p && confirm(`Delete saved week "${p.name}"?`)) {
+        Storage.deleteSavedDinnerPlan(p.id);
+        renderSavedWeeks();
+      }
+    }
   });
 
   function generateSnackPlan() {
@@ -870,6 +1041,46 @@
     if (confirm("Clear the grocery list?")) {
       Storage.setGroceryList(null);
       renderGroceryList();
+    }
+  });
+
+  /* ---- Saved grocery lists ---- */
+
+  function renderSavedGroceryLists() {
+    $("#saved-grocery-row").innerHTML = Storage.savedGroceryLists.map(l => `
+      <span class="collection-chip">
+        <button class="chip-load" data-load-list="${l.id}" title="Load this list">↺ ${esc(l.name)}</button>
+        <button data-del-list="${l.id}" title="Delete saved list">✕</button>
+      </span>`).join("");
+  }
+
+  $("#grocery-save-btn").addEventListener("click", () => {
+    const list = Storage.groceryList;
+    if (!list || !list.items.length) { toast("Nothing to save yet"); return; }
+    const suggestion = list.recipeNames && list.recipeNames.length
+      ? list.recipeNames.slice(0, 2).join(", ") : new Date().toLocaleDateString();
+    const name = prompt("Name this grocery list:", suggestion);
+    if (!name || !name.trim()) return;
+    Storage.saveGroceryListAs(name.trim());
+    renderSavedGroceryLists();
+    toast("List saved for later");
+  });
+
+  $("#saved-grocery-row").addEventListener("click", (e) => {
+    const load = e.target.closest("[data-load-list]");
+    const del = e.target.closest("[data-del-list]");
+    if (load) {
+      if (Storage.groceryList && Storage.groceryList.items.length &&
+          !confirm("Replace the current grocery list with this saved one?")) return;
+      Storage.loadSavedGroceryList(load.dataset.loadList);
+      renderGroceryList();
+      toast("Saved list loaded");
+    } else if (del) {
+      const l = Storage.savedGroceryLists.find(l => l.id === del.dataset.delList);
+      if (l && confirm(`Delete saved list "${l.name}"?`)) {
+        Storage.deleteSavedGroceryList(l.id);
+        renderSavedGroceryLists();
+      }
     }
   });
 
@@ -1045,6 +1256,46 @@
     document.querySelector('.tab-btn[data-tab="settings"]').click();
   });
 
+  $("#cloud-sync-now-btn").addEventListener("click", async () => {
+    try {
+      await Storage.syncNow();
+      renderAll();
+      toast("Fully synced ✓ — safe to close");
+    } catch (err) {
+      toast("Sync failed: " + err.message);
+    }
+  });
+
+  /* ---- Snack categories editor ---- */
+
+  function renderCategoriesEditor() {
+    $("#category-chips").innerHTML = Storage.categories.map(c => `
+      <span class="collection-chip">${esc(c)} <button data-del-cat="${esc(c)}" title="Remove category">✕</button></span>`).join("") ||
+      `<span class="card-meta">No categories yet — add some below.</span>`;
+  }
+
+  $("#category-add-btn").addEventListener("click", () => {
+    const input = $("#category-add-input");
+    const val = input.value.trim().toLowerCase();
+    if (!val) return;
+    if (Storage.categories.includes(val)) { toast("That category already exists"); return; }
+    Storage.setCategories([...Storage.categories, val]);
+    input.value = "";
+    renderCategoriesEditor();
+    renderFilterOptions();
+  });
+  $("#category-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("#category-add-btn").click();
+  });
+
+  $("#category-chips").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-del-cat]");
+    if (!btn) return;
+    Storage.setCategories(Storage.categories.filter(c => c !== btn.dataset.delCat));
+    renderCategoriesEditor();
+    renderFilterOptions();
+  });
+
   /* ---- Cloud database (GitHub) ---- */
 
   const CLOUD_STATUS_TEXT = {
@@ -1068,6 +1319,7 @@
     const active = info.status === "connected" || info.status === "syncing";
     $("#cloud-form").classList.toggle("hidden", active);
     $("#cloud-connect-btn").classList.toggle("hidden", active);
+    $("#cloud-sync-now-btn").classList.toggle("hidden", info.status !== "connected");
     $("#cloud-disconnect-btn").classList.toggle("hidden", !active && info.status !== "error");
   }
 
@@ -1109,7 +1361,9 @@
     renderPlan();
     renderGroceryPicker();
     renderGroceryList();
+    renderSavedGroceryLists();
     renderCollections();
+    renderCategoriesEditor();
   }
   renderAll();
   renderDbStatus(Storage.fileInfo());
