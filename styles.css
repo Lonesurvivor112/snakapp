@@ -219,6 +219,38 @@ main {
 .plan-day-clickable { cursor: pointer; transition: box-shadow 0.15s; }
 .plan-day-clickable:hover { box-shadow: 0 3px 12px rgba(43, 38, 32, 0.18); }
 
+/* ---- Grocery ---- */
+.section-title { font-size: 1.1rem; margin: 0 0 0.6rem; }
+.grocery-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+.grocery-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.grocery-pick:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+.grocery-list-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin: 1.4rem 0 0.5rem;
+}
+.grocery-list-head .section-title { margin: 0; }
+.grocery-amt { color: var(--accent-dark); font-weight: 600; }
+.grocery-from { font-size: 0.78rem; }
+#grocery-list { max-width: 640px; }
+
 /* ---- Collections ---- */
 .collection-block {
   background: var(--surface);

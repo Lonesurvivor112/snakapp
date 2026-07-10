@@ -21,6 +21,7 @@
         <button class="tab-btn active" data-tab="snacks">Snacks</button>
         <button class="tab-btn" data-tab="recipes">Recipes</button>
         <button class="tab-btn" data-tab="plan">Weekly Plan</button>
+        <button class="tab-btn" data-tab="grocery">Grocery</button>
         <button class="tab-btn" data-tab="collections">Collections</button>
         <button class="tab-btn" data-tab="settings">Settings</button>
       </nav>
@@ -118,6 +119,30 @@
       <p id="plan-empty" class="empty-msg">No plan yet. Add snacks and recipes, then hit <strong>Generate Week</strong> for a full week of snacks and dinners.</p>
     </section>
 
+    <!-- ============ GROCERY TAB ============ -->
+    <section id="tab-grocery" class="tab-panel">
+      <h2 class="section-title">1. Pick recipes</h2>
+      <div id="grocery-recipe-picker" class="grocery-picker"></div>
+      <div class="toolbar">
+        <button id="grocery-generate-btn" class="btn btn-primary">🛒 Generate List</button>
+        <button id="grocery-from-plan-btn" class="btn btn-ghost" title="Select every recipe in this week's dinner plan">Use dinner plan</button>
+        <button id="grocery-clear-sel-btn" class="btn btn-ghost">Clear selection</button>
+      </div>
+
+      <div class="grocery-list-head">
+        <h2 class="section-title">2. Your list</h2>
+        <span id="grocery-progress" class="card-meta"></span>
+        <button id="grocery-copy-btn" class="btn btn-ghost btn-small">Copy</button>
+        <button id="grocery-clear-btn" class="btn btn-danger btn-small">Clear list</button>
+      </div>
+      <div class="toolbar">
+        <input type="text" id="grocery-add-input" placeholder="Add your own item (e.g. paper towels)…">
+        <button id="grocery-add-btn" class="btn btn-ghost">Add</button>
+      </div>
+      <ul id="grocery-list" class="checklist"></ul>
+      <p id="grocery-empty" class="empty-msg">No list yet. Pick recipes above and hit <strong>Generate List</strong>.</p>
+    </section>
+
     <!-- ============ COLLECTIONS TAB ============ -->
     <section id="tab-collections" class="tab-panel">
       <div class="toolbar">
@@ -207,6 +232,7 @@
   <script src="js/storage.js"></script>
   <script src="js/importer.js"></script>
   <script src="js/planner.js"></script>
+  <script src="js/grocery.js"></script>
   <script src="js/app.js"></script>
   <script>
     // Offline support + installable app (only when served over https, e.g. GitHub Pages)

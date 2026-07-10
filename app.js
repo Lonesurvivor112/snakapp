@@ -1,0 +1,1117 @@
+/* ============ SnakApp UI ============ */
+(() => {
+
+  const CATEGORIES = ["sweet", "savory", "salty", "healthy", "drink", "other"];
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  function esc(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function stars(rating) {
+    const r = rating || 0;
+    return "★".repeat(r) + "☆".repeat(5 - r);
+  }
+
+  function toast(msg) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.add("hidden"), 2500);
+  }
+
+  /* ================= Tabs ================= */
+  $$(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      $$(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+      $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
+    });
+  });
+
+  /* ================= Modal ================= */
+  function openModal(html) {
+    $("#modal-content").innerHTML = html;
+    $("#modal-overlay").classList.remove("hidden");
+  }
+  function closeModal() {
+    $("#modal-overlay").classList.add("hidden");
+    $("#modal-content").innerHTML = "";
+  }
+  $("#modal-close").addEventListener("click", closeModal);
+  $("#modal-overlay").addEventListener("click", (e) => {
+    if (e.target === $("#modal-overlay")) closeModal();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+  /* ================= Picture field (URL or upload) ================= */
+
+  /* Downscale + compress an uploaded picture so it stores compactly as a data URL */
+  function fileToDataUrl(file, maxDim = 640) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(img.src);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error("unreadable image")); };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  function imageFieldHtml(value) {
+    const isData = (value || "").startsWith("data:");
+    return `
+      <div class="form-field full">
+        <label>Picture (link or upload)</label>
+        <div class="img-input-row">
+          <input name="image" type="url" value="${isData ? "" : esc(value)}" placeholder="https://… or use Upload">
+          <button type="button" class="btn btn-ghost img-upload-btn">📷 Upload</button>
+          <input type="file" class="img-file" accept="image/*" hidden>
+          <input type="hidden" name="imageData" value="${isData ? esc(value) : ""}">
+        </div>
+        <img class="img-preview ${value ? "" : "hidden"}" src="${esc(value || "")}" alt="">
+      </div>`;
+  }
+
+  function wireImageField(form) {
+    const urlInput = form.querySelector('input[name="image"]');
+    const fileInput = form.querySelector(".img-file");
+    const hidden = form.querySelector('input[name="imageData"]');
+    const preview = form.querySelector(".img-preview");
+    const btn = form.querySelector(".img-upload-btn");
+    if (!btn) return;
+    const setPreview = (src) => {
+      if (src) { preview.src = src; preview.classList.remove("hidden"); }
+      else { preview.classList.add("hidden"); }
+    };
+    btn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      try {
+        const dataUrl = await fileToDataUrl(file);
+        hidden.value = dataUrl;
+        urlInput.value = "";
+        setPreview(dataUrl);
+      } catch (e) {
+        toast("Could not read that image file");
+      }
+    });
+    urlInput.addEventListener("input", () => {
+      hidden.value = "";
+      setPreview(urlInput.value.trim());
+    });
+  }
+
+  /* Uploaded picture wins over a typed URL (typing clears the upload) */
+  function formImage(fd) {
+    return String(fd.get("imageData") || fd.get("image") || "").trim();
+  }
+
+  /* ================= Snacks ================= */
+
+  function snackFormHtml(snack = {}) {
+    const recipes = Storage.recipes;
+    return `
+      <h2>${snack.id ? "Edit Snack" : "Add Snack"}</h2>
+      <form id="snack-form" class="form-grid">
+        <div class="form-field full">
+          <label>Name *</label>
+          <input name="name" required value="${esc(snack.name)}">
+        </div>
+        <div class="form-field">
+          <label>Category</label>
+          <select name="category">
+            ${CATEGORIES.map(c => `<option value="${c}" ${snack.category === c ? "selected" : ""}>${c}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Rating</label>
+          <select name="rating">
+            ${[0,1,2,3,4,5].map(r => `<option value="${r}" ${(snack.rating ?? 3) === r ? "selected" : ""}>${r ? "★".repeat(r) : "unrated"}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field full">
+          <label>Tags (comma-separated)</label>
+          <input name="tags" value="${esc((snack.tags || []).join(", "))}" placeholder="crunchy, chocolate, gluten-free">
+        </div>
+        ${imageFieldHtml(snack.image)}
+        <div class="form-field full">
+          <label>Purchase link</label>
+          <input name="purchaseUrl" type="url" value="${esc(snack.purchaseUrl)}">
+        </div>
+        <div class="form-field">
+          <label>Linked recipe</label>
+          <select name="recipeId">
+            <option value="">— none —</option>
+            ${recipes.map(r => `<option value="${r.id}" ${snack.recipeId === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Homemade</label>
+          <label class="check-label" style="margin-top:0.4rem"><input type="checkbox" name="homemade" ${snack.homemade ? "checked" : ""}> Made at home</label>
+        </div>
+        <div class="form-field full">
+          <label>Notes</label>
+          <textarea name="notes">${esc(snack.notes)}</textarea>
+        </div>
+        <div class="form-actions full">
+          <button type="button" class="btn btn-ghost" id="snack-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">${snack.id ? "Save" : "Add Snack"}</button>
+        </div>
+      </form>`;
+  }
+
+  function openSnackForm(snack, importedDraft) {
+    openModal(snackFormHtml(snack || importedDraft || {}));
+    $("#snack-cancel").addEventListener("click", closeModal);
+    wireImageField($("#snack-form"));
+    $("#snack-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const values = {
+        name: fd.get("name").trim(),
+        category: fd.get("category"),
+        rating: parseInt(fd.get("rating")),
+        tags: fd.get("tags").split(",").map(t => t.trim().toLowerCase()).filter(Boolean),
+        image: formImage(fd),
+        purchaseUrl: fd.get("purchaseUrl").trim(),
+        recipeId: fd.get("recipeId") || null,
+        homemade: fd.get("homemade") === "on",
+        notes: fd.get("notes").trim(),
+      };
+      if (snack && snack.id) {
+        Storage.updateSnack(snack.id, values);
+        toast("Snack updated");
+      } else {
+        values.favorite = false;
+        Storage.addSnack(values);
+        toast("Snack added");
+      }
+      closeModal();
+      renderSnacks();
+      renderFilterOptions();
+    });
+  }
+
+  function snackCardHtml(snack) {
+    const homemade = Planner.isHomemade(snack);
+    return `
+      <div class="card" data-id="${snack.id}">
+        ${snack.image ? `<img class="card-img" src="${esc(snack.image)}" alt="" onerror="this.remove()">` : ""}
+        <div class="card-body">
+          <div class="card-title-row">
+            <h3 class="card-title">${esc(snack.name)}</h3>
+            <button class="fav-btn" data-action="fav" title="Toggle favorite">${snack.favorite ? "❤️" : "🤍"}</button>
+          </div>
+          <div class="card-meta">${esc(snack.category)} · <span class="stars">${stars(snack.rating)}</span></div>
+          <div class="tag-row">
+            ${homemade ? `<span class="tag homemade">homemade</span>` : ""}
+            ${(snack.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join("")}
+          </div>
+          ${snack.notes ? `<p class="card-notes">${esc(snack.notes)}</p>` : ""}
+          ${snack.purchaseUrl ? `<a class="source-link" href="${esc(snack.purchaseUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ""}
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-small" data-action="edit">Edit</button>
+          <button class="btn btn-ghost btn-small" data-action="collect">+ Collection</button>
+          ${snack.recipeId ? `<button class="btn btn-ghost btn-small" data-action="view-recipe">Recipe</button>` : ""}
+          <button class="btn btn-danger btn-small" data-action="delete">Delete</button>
+        </div>
+      </div>`;
+  }
+
+  function getSnackFilters() {
+    return {
+      search: $("#snack-search").value.trim().toLowerCase(),
+      category: $("#snack-filter-category").value,
+      tag: $("#snack-filter-tag").value,
+      minRating: parseInt($("#snack-filter-rating").value),
+      favOnly: $("#snack-filter-fav").checked,
+    };
+  }
+
+  function renderSnacks() {
+    const f = getSnackFilters();
+    const filtered = Storage.snacks.filter(s =>
+      (!f.search || s.name.toLowerCase().includes(f.search) || (s.tags || []).some(t => t.includes(f.search))) &&
+      (!f.category || s.category === f.category) &&
+      (!f.tag || (s.tags || []).includes(f.tag)) &&
+      ((s.rating || 0) >= f.minRating) &&
+      (!f.favOnly || s.favorite)
+    );
+    $("#snack-grid").innerHTML = filtered.map(snackCardHtml).join("");
+    $("#snack-empty").classList.toggle("hidden", Storage.snacks.length > 0);
+  }
+
+  function renderFilterOptions() {
+    const catSel = $("#snack-filter-category");
+    const current = catSel.value;
+    catSel.innerHTML = `<option value="">All categories</option>` +
+      CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
+    catSel.value = current;
+
+    const tagSel = $("#snack-filter-tag");
+    const currentTag = tagSel.value;
+    const tags = [...new Set(Storage.snacks.flatMap(s => s.tags || []))].sort();
+    tagSel.innerHTML = `<option value="">All tags</option>` +
+      tags.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+    tagSel.value = currentTag;
+  }
+
+  $("#add-snack-btn").addEventListener("click", () => openSnackForm(null));
+
+  function setSnackImportStatus(msg, isError) {
+    const el = $("#snack-import-status");
+    if (!msg) { el.classList.add("hidden"); return; }
+    el.textContent = msg;
+    el.classList.toggle("error", !!isError);
+    el.classList.remove("hidden");
+  }
+
+  $("#snack-import-btn").addEventListener("click", async () => {
+    const url = $("#snack-import-url").value.trim();
+    if (!url) { setSnackImportStatus("Paste a product URL first.", true); return; }
+    setSnackImportStatus("Looking up product…");
+    try {
+      const draft = await Importer.importProduct(url);
+      const statusByMethod = {
+        "barcode": "Product found via barcode lookup — review and save.",
+        "name-search": "Barcode wasn't in the databases; matched by product name instead — double-check it's the right item.",
+        "product-schema": "Product info found on the page — review and save.",
+        "opengraph": "Got basic info from the page — review and save.",
+        "slug": "Store blocks lookups and the barcode wasn't in the product database — name guessed from the URL. Add details and a picture.",
+      };
+      setSnackImportStatus(statusByMethod[draft.importMethod] || "Imported — review and save.");
+      openSnackForm(null, draft);
+      $("#snack-import-url").value = "";
+    } catch (err) {
+      setSnackImportStatus("Import failed: " + err.message, true);
+    }
+  });
+  ["snack-search", "snack-filter-category", "snack-filter-tag", "snack-filter-rating", "snack-filter-fav"]
+    .forEach(id => $("#" + id).addEventListener("input", renderSnacks));
+
+  $("#snack-grid").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const card = btn.closest(".card");
+    const snack = Storage.snacks.find(s => s.id === card.dataset.id);
+    if (!snack) return;
+
+    switch (btn.dataset.action) {
+      case "fav":
+        Storage.updateSnack(snack.id, { favorite: !snack.favorite });
+        renderSnacks();
+        break;
+      case "edit":
+        openSnackForm(snack);
+        break;
+      case "delete":
+        if (confirm(`Delete "${snack.name}"?`)) {
+          Storage.deleteSnack(snack.id);
+          renderSnacks();
+          renderCollections();
+        }
+        break;
+      case "view-recipe": {
+        const recipe = Storage.recipes.find(r => r.id === snack.recipeId);
+        if (recipe) openRecipeDetail(recipe);
+        break;
+      }
+      case "collect":
+        openAddToCollection(snack);
+        break;
+    }
+  });
+
+  /* ================= Recipes ================= */
+
+  function minutesLabel(mins) {
+    if (!mins) return "";
+    if (mins < 60) return mins + " min";
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return h + " h" + (m ? " " + m + " min" : "");
+  }
+
+  function recipeCardHtml(recipe) {
+    return `
+      <div class="card" data-id="${recipe.id}">
+        ${recipe.image ? `<img class="card-img" src="${esc(recipe.image)}" alt="" onerror="this.remove()">` : ""}
+        <div class="card-body">
+          <h3 class="card-title">${esc(recipe.name)}</h3>
+          <div class="card-meta">
+            ${recipe.totalTime ? "⏱ " + minutesLabel(recipe.totalTime) + " · " : ""}
+            ${recipe.servings ? esc(recipe.servings) + " · " : ""}
+            ${(recipe.ingredients || []).length} ingredients
+          </div>
+          ${recipe.sourceUrl ? `<a class="source-link" href="${esc(recipe.sourceUrl)}" target="_blank" rel="noopener">Source ↗</a>` : ""}
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-small" data-action="cook">🍳 Cook</button>
+          <button class="btn btn-ghost btn-small" data-action="view">View</button>
+          <button class="btn btn-ghost btn-small" data-action="edit">Edit</button>
+          <button class="btn btn-ghost btn-small" data-action="copy">Copy</button>
+          <button class="btn btn-ghost btn-small" data-action="to-catalog">→ Catalog</button>
+          <button class="btn btn-danger btn-small" data-action="delete">Delete</button>
+        </div>
+      </div>`;
+  }
+
+  function renderRecipes() {
+    const q = $("#recipe-search").value.trim().toLowerCase();
+    const filtered = Storage.recipes.filter(r =>
+      !q || r.name.toLowerCase().includes(q) ||
+      (r.ingredients || []).some(i => i.toLowerCase().includes(q))
+    );
+    $("#recipe-grid").innerHTML = filtered.map(recipeCardHtml).join("");
+    $("#recipe-empty").classList.toggle("hidden", Storage.recipes.length > 0);
+  }
+
+  function openRecipeDetail(recipe) {
+    openModal(`
+      <div class="recipe-detail">
+        <h2>${esc(recipe.name)}</h2>
+        <button class="btn btn-primary btn-small" id="detail-cook-btn">🍳 Cook this</button>
+        ${recipe.image ? `<img src="${esc(recipe.image)}" alt="" onerror="this.remove()">` : ""}
+        <div class="times">
+          ${recipe.prepTime ? `<span>Prep: ${minutesLabel(recipe.prepTime)}</span>` : ""}
+          ${recipe.cookTime ? `<span>Cook: ${minutesLabel(recipe.cookTime)}</span>` : ""}
+          ${recipe.totalTime ? `<span>Total: ${minutesLabel(recipe.totalTime)}</span>` : ""}
+          ${recipe.servings ? `<span>Serves: ${esc(recipe.servings)}</span>` : ""}
+          ${recipe.nutrition ? `<span>${esc(recipe.nutrition)}</span>` : ""}
+        </div>
+        <h3>Ingredients</h3>
+        <ul>${(recipe.ingredients || []).map(i => `<li>${esc(i)}</li>`).join("") || "<li><em>none listed</em></li>"}</ul>
+        <h3>Instructions</h3>
+        <ol>${(recipe.instructions || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li><em>none listed</em></li>"}</ol>
+        ${recipe.sourceUrl ? `<a class="source-link" href="${esc(recipe.sourceUrl)}" target="_blank" rel="noopener">Original source ↗</a>` : ""}
+      </div>`);
+    $("#detail-cook-btn").addEventListener("click", () => openCookMode(recipe));
+  }
+
+  /* ---- Cook mode: tick off ingredients and steps; progress persists ---- */
+  function openCookMode(recipe) {
+    const prog = recipe.cookProgress || { ing: [], steps: [] };
+    const item = (text, kind, i, checked) =>
+      `<li class="${checked ? "done" : ""}"><label><input type="checkbox" data-kind="${kind}" data-idx="${i}" ${checked ? "checked" : ""}> <span>${esc(text)}</span></label></li>`;
+
+    openModal(`
+      <div class="cook-mode">
+        <h2>🍳 ${esc(recipe.name)}</h2>
+        <p class="card-meta" id="cook-progress-text"></p>
+        <h3>Ingredients</h3>
+        <ul class="checklist">
+          ${(recipe.ingredients || []).map((t, i) => item(t, "ing", i, !!prog.ing[i])).join("") || "<li><em>No ingredients listed</em></li>"}
+        </ul>
+        <h3>Steps</h3>
+        <ol class="checklist">
+          ${(recipe.instructions || []).map((t, i) => item(t, "steps", i, !!prog.steps[i])).join("") || "<li><em>No steps listed</em></li>"}
+        </ol>
+        <div class="form-actions">
+          <button class="btn btn-ghost" id="cook-reset">Reset checklist</button>
+          <button class="btn btn-primary" id="cook-close">Close</button>
+        </div>
+      </div>`);
+
+    const updateProgressText = () => {
+      const p = recipe.cookProgress || { ing: [], steps: [] };
+      const ingDone = (p.ing || []).filter(Boolean).length;
+      const stepDone = (p.steps || []).filter(Boolean).length;
+      const ingTotal = (recipe.ingredients || []).length;
+      const stepTotal = (recipe.instructions || []).length;
+      $("#cook-progress-text").textContent =
+        `${ingDone}/${ingTotal} ingredients gathered · ${stepDone}/${stepTotal} steps done` +
+        (ingTotal && stepDone === stepTotal && stepTotal ? " — enjoy! 🎉" : "");
+    };
+    updateProgressText();
+
+    $("#modal-content").addEventListener("change", (e) => {
+      const cb = e.target.closest('input[type="checkbox"][data-kind]');
+      if (!cb) return;
+      const p = recipe.cookProgress || (recipe.cookProgress = { ing: [], steps: [] });
+      p[cb.dataset.kind][cb.dataset.idx] = cb.checked;
+      Storage.updateRecipe(recipe.id, { cookProgress: p });
+      cb.closest("li").classList.toggle("done", cb.checked);
+      updateProgressText();
+    });
+
+    $("#cook-reset").addEventListener("click", () => {
+      Storage.updateRecipe(recipe.id, { cookProgress: { ing: [], steps: [] } });
+      openCookMode(recipe);
+    });
+    $("#cook-close").addEventListener("click", closeModal);
+  }
+
+  function recipeFormHtml(recipe = {}) {
+    return `
+      <h2>${recipe.id ? "Edit Recipe" : "New Recipe"}</h2>
+      <form id="recipe-form" class="form-grid">
+        <div class="form-field full">
+          <label>Title *</label>
+          <input name="name" required value="${esc(recipe.name)}">
+        </div>
+        <div class="form-field">
+          <label>Prep time (min)</label>
+          <input name="prepTime" type="number" min="0" value="${recipe.prepTime ?? ""}">
+        </div>
+        <div class="form-field">
+          <label>Cook time (min)</label>
+          <input name="cookTime" type="number" min="0" value="${recipe.cookTime ?? ""}">
+        </div>
+        <div class="form-field">
+          <label>Servings</label>
+          <input name="servings" value="${esc(recipe.servings)}">
+        </div>
+        ${imageFieldHtml(recipe.image)}
+        <div class="form-field full">
+          <label>Ingredients (one per line)</label>
+          <textarea name="ingredients" rows="6">${esc((recipe.ingredients || []).join("\n"))}</textarea>
+        </div>
+        <div class="form-field full">
+          <label>Instructions (one step per line)</label>
+          <textarea name="instructions" rows="6">${esc((recipe.instructions || []).join("\n"))}</textarea>
+        </div>
+        <div class="form-field full">
+          <label>Source URL</label>
+          <input name="sourceUrl" type="url" value="${esc(recipe.sourceUrl)}">
+        </div>
+        <div class="form-actions full">
+          <button type="button" class="btn btn-ghost" id="recipe-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">${recipe.id ? "Save" : "Add Recipe"}</button>
+        </div>
+      </form>`;
+  }
+
+  function openRecipeForm(recipe, importedDraft) {
+    const source = recipe || importedDraft || {};
+    openModal(recipeFormHtml(source));
+    $("#recipe-cancel").addEventListener("click", closeModal);
+    wireImageField($("#recipe-form"));
+    $("#recipe-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const prep = parseInt(fd.get("prepTime")) || null;
+      const cook = parseInt(fd.get("cookTime")) || null;
+      const values = {
+        name: fd.get("name").trim(),
+        prepTime: prep,
+        cookTime: cook,
+        totalTime: (prep || cook) ? (prep || 0) + (cook || 0) : (source.totalTime || null),
+        servings: fd.get("servings").trim(),
+        image: formImage(fd),
+        ingredients: fd.get("ingredients").split("\n").map(s => s.trim()).filter(Boolean),
+        instructions: fd.get("instructions").split("\n").map(s => s.trim()).filter(Boolean),
+        sourceUrl: fd.get("sourceUrl").trim(),
+      };
+      if (recipe && recipe.id) {
+        Storage.updateRecipe(recipe.id, values);
+        toast("Recipe updated");
+      } else {
+        values.nutrition = source.nutrition || "";
+        values.rawSchema = source.rawSchema || null;
+        values.importMethod = source.importMethod || "manual";
+        Storage.addRecipe(values);
+        toast("Recipe saved");
+      }
+      closeModal();
+      renderRecipes();
+    });
+  }
+
+  function setImportStatus(msg, isError) {
+    const el = $("#import-status");
+    if (!msg) { el.classList.add("hidden"); return; }
+    el.textContent = msg;
+    el.classList.toggle("error", !!isError);
+    el.classList.remove("hidden");
+  }
+
+  $("#import-url-btn").addEventListener("click", async () => {
+    const url = $("#import-url").value.trim();
+    if (!url) { setImportStatus("Paste a recipe URL first.", true); return; }
+    setImportStatus("Fetching page… (protected sites can take ~20–30 seconds)");
+    try {
+      const draft = await Importer.importFromUrl(url);
+      const statusByMethod = {
+        "json-ld": "Recipe schema found — review and save.",
+        "json-ld-rendered": "Recipe schema found (page rendered via reader service) — review and save.",
+        "reader": "Site blocks direct fetching — recipe extracted via reader service. Double-check the fields, then save.",
+        "opengraph": "No structured recipe data; got basic info from page metadata. Fill in the rest.",
+      };
+      setImportStatus(statusByMethod[draft.importMethod] || "Imported — review and save.");
+      openRecipeForm(null, draft);
+      $("#import-url").value = "";
+    } catch (err) {
+      setImportStatus(
+        "Import failed (" + err.message + "). The site may block fetching — try \"Paste HTML\": open the page, view source (Ctrl+U), copy all, and paste it.",
+        true
+      );
+    }
+  });
+
+  $("#paste-html-btn").addEventListener("click", () => {
+    openModal(`
+      <h2>Paste Page HTML</h2>
+      <p class="card-meta">Open the recipe page in your browser, press <strong>Ctrl+U</strong> (view source), select all, copy, and paste below.</p>
+      <form id="paste-html-form">
+        <div class="form-field">
+          <label>Source URL (optional)</label>
+          <input name="url" type="url" placeholder="https://…">
+        </div>
+        <div class="form-field" style="margin-top:0.5rem">
+          <label>Page HTML *</label>
+          <textarea name="html" rows="10" required></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="paste-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Extract Recipe</button>
+        </div>
+      </form>`);
+    $("#paste-cancel").addEventListener("click", closeModal);
+    $("#paste-html-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const draft = Importer.parseHtml(fd.get("html"), fd.get("url").trim());
+      if (!draft) {
+        setImportStatus("No recipe data found in that HTML. Use manual entry instead.", true);
+        closeModal();
+        return;
+      }
+      setImportStatus(draft.importMethod === "json-ld"
+        ? "Recipe schema found — review and save."
+        : "Only basic metadata found. Fill in the rest.");
+      openRecipeForm(null, draft);
+    });
+  });
+
+  $("#add-recipe-btn").addEventListener("click", () => openRecipeForm(null, null));
+  $("#recipe-search").addEventListener("input", renderRecipes);
+
+  function recipeToText(r) {
+    const lines = [r.name, ""];
+    if (r.totalTime) lines.push("Total time: " + minutesLabel(r.totalTime));
+    if (r.servings) lines.push("Servings: " + r.servings);
+    lines.push("", "INGREDIENTS:");
+    (r.ingredients || []).forEach(i => lines.push("- " + i));
+    lines.push("", "INSTRUCTIONS:");
+    (r.instructions || []).forEach((s, idx) => lines.push((idx + 1) + ". " + s));
+    if (r.sourceUrl) lines.push("", "Source: " + r.sourceUrl);
+    return lines.join("\n");
+  }
+
+  $("#recipe-grid").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const recipe = Storage.recipes.find(r => r.id === btn.closest(".card").dataset.id);
+    if (!recipe) return;
+
+    switch (btn.dataset.action) {
+      case "cook":
+        openCookMode(recipe);
+        break;
+      case "view":
+        openRecipeDetail(recipe);
+        break;
+      case "edit":
+        openRecipeForm(recipe, null);
+        break;
+      case "copy":
+        try {
+          await navigator.clipboard.writeText(recipeToText(recipe));
+          toast("Recipe copied to clipboard");
+        } catch (err) {
+          toast("Copy failed — clipboard blocked");
+        }
+        break;
+      case "to-catalog": {
+        const existing = Storage.snacks.find(s => s.recipeId === recipe.id);
+        if (existing) { toast(`Already in catalog as "${existing.name}"`); break; }
+        Storage.addSnack({
+          name: recipe.name,
+          category: "other",
+          tags: ["homemade"],
+          rating: 3,
+          image: recipe.image || "",
+          notes: "",
+          purchaseUrl: "",
+          recipeId: recipe.id,
+          homemade: true,
+          favorite: false,
+        });
+        toast("Added to snack catalog");
+        renderSnacks();
+        renderFilterOptions();
+        break;
+      }
+      case "delete":
+        if (confirm(`Delete recipe "${recipe.name}"?`)) {
+          Storage.deleteRecipe(recipe.id);
+          renderRecipes();
+          renderSnacks();
+        }
+        break;
+    }
+  });
+
+  /* ================= Weekly plan ================= */
+
+  function renderPlan() {
+    const snackPlan = Storage.lastPlan;
+    const dinnerPlan = Storage.lastDinnerPlan;
+    const hasAny = !!((snackPlan && snackPlan.days.length) || (dinnerPlan && dinnerPlan.days.length));
+    $("#plan-empty").classList.toggle("hidden", hasAny);
+    $$(".plan-section-head").forEach(h => h.classList.toggle("hidden", !hasAny));
+
+    $("#plan-grid").innerHTML = ((snackPlan && snackPlan.days) || []).map(d => {
+      const snack = Storage.snacks.find(s => s.id === d.snackId);
+      if (!snack) return `<div class="plan-day"><h3>${d.day}</h3><span class="card-meta">(snack removed)</span></div>`;
+      return `
+        <div class="plan-day">
+          <h3>${d.day}</h3>
+          ${snack.image ? `<img src="${esc(snack.image)}" alt="" onerror="this.remove()">` : ""}
+          <span class="plan-snack">${esc(snack.name)}</span>
+          <span class="card-meta">${esc(snack.category)}${Planner.isHomemade(snack) ? " · homemade" : ""}</span>
+        </div>`;
+    }).join("");
+
+    $("#dinner-grid").innerHTML = ((dinnerPlan && dinnerPlan.days) || []).map(d => {
+      const recipe = Storage.recipes.find(r => r.id === d.recipeId);
+      if (!recipe) return `<div class="plan-day"><h3>${d.day}</h3><span class="card-meta">(recipe removed)</span></div>`;
+      return `
+        <div class="plan-day plan-day-clickable" data-recipe="${recipe.id}" title="Open recipe">
+          <h3>${d.day}</h3>
+          ${recipe.image ? `<img src="${esc(recipe.image)}" alt="" onerror="this.remove()">` : ""}
+          <span class="plan-snack">${esc(recipe.name)}</span>
+          <span class="card-meta">${recipe.totalTime ? "⏱ " + minutesLabel(recipe.totalTime) : (recipe.ingredients || []).length + " ingredients"}</span>
+        </div>`;
+    }).join("");
+  }
+
+  $("#dinner-grid").addEventListener("click", (e) => {
+    const card = e.target.closest("[data-recipe]");
+    if (!card) return;
+    const recipe = Storage.recipes.find(r => r.id === card.dataset.recipe);
+    if (recipe) openRecipeDetail(recipe);
+  });
+
+  function generateSnackPlan() {
+    if (Storage.snacks.length === 0) return ["Add some snacks to the catalog to plan snacks."];
+    const plan = Planner.generate(Storage.snacks, {
+      seed: Math.floor(Math.random() * 2 ** 31),
+      maxPerCategory: parseInt($("#plan-max-category").value),
+      minHomemade: parseInt($("#plan-min-homemade").value),
+      excludeIds: $("#plan-no-repeats").checked ? Storage.prevPlanSnackIds : [],
+    });
+    Storage.setPlan(plan);
+    return plan.notes;
+  }
+
+  function generateDinnerPlan() {
+    if (Storage.recipes.length === 0) return ["Import or add recipes to plan dinners."];
+    const plan = Planner.generateDinners(Storage.recipes, Storage.snacks, {
+      seed: Math.floor(Math.random() * 2 ** 31),
+      excludeIds: $("#plan-no-repeats").checked ? Storage.prevDinnerRecipeIds : [],
+    });
+    Storage.setDinnerPlan(plan);
+    return plan.notes;
+  }
+
+  function showPlanNotes(notes) {
+    const note = $("#plan-note");
+    note.textContent = notes.join(" ");
+    note.classList.toggle("hidden", notes.length === 0);
+  }
+
+  $("#generate-plan-btn").addEventListener("click", () => {
+    const notes = [...generateSnackPlan(), ...generateDinnerPlan()];
+    renderPlan();
+    showPlanNotes(notes);
+  });
+  $("#reroll-snacks-btn").addEventListener("click", () => {
+    showPlanNotes(generateSnackPlan());
+    renderPlan();
+  });
+  $("#reroll-dinners-btn").addEventListener("click", () => {
+    showPlanNotes(generateDinnerPlan());
+    renderPlan();
+  });
+
+  /* ================= Grocery list ================= */
+
+  const grocerySelected = new Set(); // recipe ids picked for the next list (not persisted)
+
+  function renderGroceryPicker() {
+    grocerySelected.forEach(id => { if (!Storage.recipes.some(r => r.id === id)) grocerySelected.delete(id); });
+    $("#grocery-recipe-picker").innerHTML = Storage.recipes.map(r => `
+      <label class="grocery-pick">
+        <input type="checkbox" value="${r.id}" ${grocerySelected.has(r.id) ? "checked" : ""}>
+        ${esc(r.name)}
+      </label>`).join("") ||
+      `<p class="card-meta">No recipes yet — import some on the Recipes tab first.</p>`;
+  }
+
+  $("#grocery-recipe-picker").addEventListener("change", (e) => {
+    const cb = e.target.closest('input[type="checkbox"]');
+    if (!cb) return;
+    if (cb.checked) grocerySelected.add(cb.value);
+    else grocerySelected.delete(cb.value);
+  });
+
+  function renderGroceryList() {
+    const list = Storage.groceryList;
+    const hasList = !!(list && list.items && list.items.length);
+    $("#grocery-empty").classList.toggle("hidden", hasList);
+    if (!hasList) {
+      $("#grocery-list").innerHTML = "";
+      $("#grocery-progress").textContent = "";
+      return;
+    }
+    $("#grocery-list").innerHTML = list.items.map((item, i) => {
+      const amounts = Grocery.formatAmounts(item.amounts);
+      const fromLabel = item.from && item.from.length
+        ? (item.from.length === 1 ? item.from[0] : item.from.length + " recipes") : "";
+      return `
+        <li class="${item.checked ? "done" : ""}">
+          <label>
+            <input type="checkbox" data-idx="${i}" ${item.checked ? "checked" : ""}>
+            <span>${esc(item.name.charAt(0).toUpperCase() + item.name.slice(1))}
+              ${amounts ? `<strong class="grocery-amt">— ${esc(amounts)}</strong>` : ""}
+              ${fromLabel ? `<span class="card-meta grocery-from" title="${esc((item.from || []).join(", "))}">(${esc(fromLabel)})</span>` : ""}
+            </span>
+          </label>
+        </li>`;
+    }).join("");
+    const done = list.items.filter(i => i.checked).length;
+    $("#grocery-progress").textContent = `${done} of ${list.items.length} in the cart` +
+      (list.recipeNames && list.recipeNames.length ? ` · for ${list.recipeNames.length} recipe(s)` : "");
+  }
+
+  $("#grocery-list").addEventListener("change", (e) => {
+    const cb = e.target.closest("input[data-idx]");
+    if (!cb) return;
+    const list = Storage.groceryList;
+    if (!list) return;
+    list.items[cb.dataset.idx].checked = cb.checked;
+    Storage.setGroceryList(list);
+    renderGroceryList();
+  });
+
+  $("#grocery-generate-btn").addEventListener("click", () => {
+    const recipes = Storage.recipes.filter(r => grocerySelected.has(r.id));
+    if (!recipes.length) { toast("Tick at least one recipe first"); return; }
+    Storage.setGroceryList(Grocery.build(recipes));
+    renderGroceryList();
+    toast(`List built from ${recipes.length} recipe(s)`);
+  });
+
+  $("#grocery-from-plan-btn").addEventListener("click", () => {
+    const plan = Storage.lastDinnerPlan;
+    if (!plan || !plan.days.length) { toast("Generate a dinner plan first (Weekly Plan tab)"); return; }
+    grocerySelected.clear();
+    plan.days.forEach(d => {
+      if (Storage.recipes.some(r => r.id === d.recipeId)) grocerySelected.add(d.recipeId);
+    });
+    renderGroceryPicker();
+    toast(`Selected ${grocerySelected.size} recipe(s) from the dinner plan`);
+  });
+
+  $("#grocery-clear-sel-btn").addEventListener("click", () => {
+    grocerySelected.clear();
+    renderGroceryPicker();
+  });
+
+  $("#grocery-add-btn").addEventListener("click", () => {
+    const input = $("#grocery-add-input");
+    const name = input.value.trim();
+    if (!name) return;
+    const list = Storage.groceryList || { items: [], recipeNames: [], createdAt: new Date().toISOString() };
+    list.items.push({ name, amounts: {}, from: [], checked: false });
+    Storage.setGroceryList(list);
+    input.value = "";
+    renderGroceryList();
+  });
+  $("#grocery-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("#grocery-add-btn").click();
+  });
+
+  $("#grocery-copy-btn").addEventListener("click", async () => {
+    const list = Storage.groceryList;
+    if (!list || !list.items.length) { toast("Nothing to copy yet"); return; }
+    const text = ["Grocery list" + (list.recipeNames.length ? " — " + list.recipeNames.join(", ") : "") + ":"]
+      .concat(list.items.map(i => {
+        const amt = Grocery.formatAmounts(i.amounts);
+        return (i.checked ? "[x] " : "[ ] ") + i.name + (amt ? " — " + amt : "");
+      })).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Grocery list copied");
+    } catch (err) {
+      toast("Copy failed — clipboard blocked");
+    }
+  });
+
+  $("#grocery-clear-btn").addEventListener("click", () => {
+    if (!Storage.groceryList) return;
+    if (confirm("Clear the grocery list?")) {
+      Storage.setGroceryList(null);
+      renderGroceryList();
+    }
+  });
+
+  /* ================= Collections ================= */
+
+  function renderCollections() {
+    const list = $("#collections-list");
+    list.innerHTML = Storage.collections.map(c => `
+      <div class="collection-block" data-id="${c.id}">
+        <div class="collection-header">
+          <h3>${esc(c.name)}</h3>
+          <button class="btn btn-danger btn-small" data-action="delete-collection">Delete</button>
+        </div>
+        <div class="collection-items">
+          ${c.snackIds.map(sid => {
+            const s = Storage.snacks.find(s => s.id === sid);
+            return s ? `<span class="collection-chip">${esc(s.name)} <button data-action="remove-item" data-snack="${sid}" title="Remove">✕</button></span>` : "";
+          }).join("") || `<span class="card-meta">Empty — add snacks via "+ Collection" on a snack card.</span>`}
+        </div>
+      </div>`).join("");
+    $("#collections-empty").classList.toggle("hidden", Storage.collections.length > 0);
+  }
+
+  $("#add-collection-btn").addEventListener("click", () => {
+    const input = $("#new-collection-name");
+    const name = input.value.trim();
+    if (!name) return;
+    Storage.addCollection(name);
+    input.value = "";
+    renderCollections();
+  });
+
+  $("#collections-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const collectionId = btn.closest(".collection-block").dataset.id;
+    if (btn.dataset.action === "delete-collection") {
+      const c = Storage.collections.find(c => c.id === collectionId);
+      if (confirm(`Delete collection "${c.name}"? (Snacks are kept.)`)) {
+        Storage.deleteCollection(collectionId);
+        renderCollections();
+      }
+    } else if (btn.dataset.action === "remove-item") {
+      Storage.removeFromCollection(collectionId, btn.dataset.snack);
+      renderCollections();
+    }
+  });
+
+  function openAddToCollection(snack) {
+    if (Storage.collections.length === 0) {
+      toast("Create a collection first (Collections tab)");
+      return;
+    }
+    openModal(`
+      <h2>Add "${esc(snack.name)}" to…</h2>
+      <div class="collection-items" id="collection-pick">
+        ${Storage.collections.map(c =>
+          `<button class="btn btn-ghost" data-id="${c.id}">${esc(c.name)}${c.snackIds.includes(snack.id) ? " ✓" : ""}</button>`
+        ).join("")}
+      </div>`);
+    $("#collection-pick").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-id]");
+      if (!btn) return;
+      Storage.addToCollection(btn.dataset.id, snack.id);
+      toast("Added to collection");
+      closeModal();
+      renderCollections();
+    });
+  }
+
+  /* ================= Export / import ================= */
+
+  $("#export-btn").addEventListener("click", () => {
+    const blob = new Blob([Storage.exportJSON()], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "snakapp-export-" + new Date().toISOString().slice(0, 10) + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  $("#import-btn").addEventListener("click", () => $("#import-file").click());
+  $("#import-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!confirm("Importing replaces ALL current data. Continue?")) { e.target.value = ""; return; }
+    try {
+      Storage.importJSON(await file.text());
+      renderAll();
+      toast("Data imported");
+    } catch (err) {
+      toast("Import failed: " + err.message);
+    }
+    e.target.value = "";
+  });
+
+  /* ================= Settings / live database ================= */
+
+  const DB_STATUS_TEXT = {
+    disconnected: "Not connected — using browser storage only",
+    connected: "Connected — saving live",
+    "needs-permission": "Reconnect required — click Reconnect to re-grant file access",
+    unsupported: "Live file access not supported in this browser",
+    error: "File write failed — check the file and reconnect",
+  };
+
+  /* Header dot reflects both connections: green if either is live */
+  let fileInfoCache = { status: "disconnected" };
+  let cloudInfoCache = { status: "disconnected" };
+  function updateHeaderDot() {
+    const connected = fileInfoCache.status === "connected" || cloudInfoCache.status === "connected";
+    const trouble = fileInfoCache.status === "needs-permission" || fileInfoCache.status === "error" ||
+      cloudInfoCache.status === "error";
+    $("#header-db-dot").className = "status-dot" +
+      (connected ? " connected" : trouble ? " needs-permission" : "");
+  }
+
+  function renderDbStatus(info) {
+    fileInfoCache = info;
+    const dotClass = "status-dot" +
+      (info.status === "connected" ? " connected"
+        : info.status === "needs-permission" ? " needs-permission"
+        : info.status === "error" ? " error" : "");
+    $("#db-dot").className = dotClass;
+    updateHeaderDot();
+    $("#db-status-text").textContent = DB_STATUS_TEXT[info.status] || info.status;
+    $("#db-file-name").textContent = info.fileName ? "Database file: " + info.fileName : "";
+    $("#db-last-saved").textContent = info.lastSavedAt
+      ? "Last saved: " + info.lastSavedAt.toLocaleTimeString() : "";
+    $("#db-reconnect-btn").classList.toggle("hidden", info.status !== "needs-permission");
+    $("#db-disconnect-btn").classList.toggle("hidden", !info.fileName);
+    $("#db-connect-btn").classList.toggle("hidden", !info.supported);
+    $("#db-create-btn").classList.toggle("hidden", !info.supported);
+    $("#db-unsupported-msg").classList.toggle("hidden", info.supported);
+  }
+
+  $("#db-connect-btn").addEventListener("click", async () => {
+    try {
+      await Storage.connectFile();
+      renderAll();
+      toast("Database connected — saving live");
+    } catch (err) {
+      if (err.name !== "AbortError") toast("Connect failed: " + err.message);
+    }
+  });
+
+  $("#db-create-btn").addEventListener("click", async () => {
+    try {
+      await Storage.createFile();
+      toast("Database file created — saving live");
+    } catch (err) {
+      if (err.name !== "AbortError") toast("Create failed: " + err.message);
+    }
+  });
+
+  $("#db-reconnect-btn").addEventListener("click", async () => {
+    try {
+      const ok = await Storage.reconnect();
+      if (ok) { renderAll(); toast("Database reconnected"); }
+      else toast("Permission was not granted");
+    } catch (err) {
+      toast("Reconnect failed: " + err.message);
+    }
+  });
+
+  $("#db-disconnect-btn").addEventListener("click", async () => {
+    if (!confirm("Disconnect the database file? Data stays in browser storage and in the file; they just stop syncing.")) return;
+    await Storage.disconnectFile();
+    toast("Database disconnected");
+  });
+
+  $("#header-db-indicator").addEventListener("click", () => {
+    document.querySelector('.tab-btn[data-tab="settings"]').click();
+  });
+
+  /* ---- Cloud database (GitHub) ---- */
+
+  const CLOUD_STATUS_TEXT = {
+    disconnected: "Not connected",
+    syncing: "Connecting…",
+    connected: "Connected — syncing automatically",
+    error: "Sync error — reconnect with a valid token",
+  };
+
+  function renderCloudStatus(info) {
+    cloudInfoCache = info;
+    $("#cloud-dot").className = "status-dot" +
+      (info.status === "connected" ? " connected"
+        : info.status === "syncing" ? " needs-permission"
+        : info.status === "error" ? " error" : "");
+    updateHeaderDot();
+    $("#cloud-status-text").textContent = CLOUD_STATUS_TEXT[info.status] || info.status;
+    $("#cloud-repo-name").textContent = info.repo ? `Repo: ${info.repo} / ${info.path}` : "";
+    $("#cloud-last-synced").textContent = info.lastSyncedAt
+      ? "Last synced: " + info.lastSyncedAt.toLocaleTimeString() : "";
+    const active = info.status === "connected" || info.status === "syncing";
+    $("#cloud-form").classList.toggle("hidden", active);
+    $("#cloud-connect-btn").classList.toggle("hidden", active);
+    $("#cloud-disconnect-btn").classList.toggle("hidden", !active && info.status !== "error");
+  }
+
+  $("#cloud-connect-btn").addEventListener("click", async () => {
+    const token = $("#cloud-token").value.trim();
+    const repoStr = $("#cloud-repo").value.trim();
+    const path = $("#cloud-path").value.trim() || "snakapp-db.json";
+    const m = repoStr.match(/^([\w.-]+)\/([\w.-]+)$/);
+    if (!token) { toast("Paste your GitHub token first"); return; }
+    if (!m) { toast("Repository must look like owner/name"); return; }
+    try {
+      await Storage.connectCloud({ token, owner: m[1], repo: m[2], path });
+      renderAll();
+      toast("Cloud database connected");
+      $("#cloud-token").value = "";
+    } catch (err) {
+      toast("Connect failed: " + err.message);
+    }
+  });
+
+  $("#cloud-disconnect-btn").addEventListener("click", () => {
+    if (!confirm("Disconnect the cloud database? Data stays on this device and in the repo; they just stop syncing.")) return;
+    Storage.disconnectCloud();
+    toast("Cloud database disconnected");
+  });
+
+  Storage.onCloudStatus(renderCloudStatus);
+  Storage.onFileStatus(renderDbStatus);
+  Storage.onDataReloaded(() => {
+    renderAll();
+    toast("Database updated from sync");
+  });
+
+  /* ================= Init ================= */
+  function renderAll() {
+    renderFilterOptions();
+    renderSnacks();
+    renderRecipes();
+    renderPlan();
+    renderGroceryPicker();
+    renderGroceryList();
+    renderCollections();
+  }
+  renderAll();
+  renderDbStatus(Storage.fileInfo());
+  renderCloudStatus(Storage.cloudInfo());
+  // Restore previous connections; re-render once their data is loaded
+  Storage.initFileSync().then(renderAll);
+  Storage.initCloudSync().then(renderAll);
+
+})();
