@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnakApp — Snack Catalog & Weekly Planner</title>
+  <meta name="theme-color" content="#d96c2c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SnakApp">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <h1>🍿 SnakApp</h1>
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="snacks">Snacks</button>
+        <button class="tab-btn" data-tab="recipes">Recipes</button>
+        <button class="tab-btn" data-tab="plan">Weekly Plan</button>
+        <button class="tab-btn" data-tab="collections">Collections</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+      </nav>
+      <div class="header-actions">
+        <button id="header-db-indicator" class="db-indicator" title="Database status — click for settings">
+          <span id="header-db-dot" class="status-dot"></span> DB
+        </button>
+        <button id="export-btn" class="btn btn-ghost" title="Download all data as JSON">Export</button>
+        <button id="import-btn" class="btn btn-ghost" title="Import data from JSON file">Import</button>
+        <input type="file" id="import-file" accept=".json" hidden>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ============ SNACKS TAB ============ -->
+    <section id="tab-snacks" class="tab-panel active">
+      <div class="toolbar">
+        <input type="url" id="snack-import-url" placeholder="Paste a product URL (e.g. from kroger.com) to import a snack…">
+        <button id="snack-import-btn" class="btn btn-primary">Import Product</button>
+      </div>
+      <p id="snack-import-status" class="import-status hidden"></p>
+      <div class="toolbar toolbar-sub">
+        <input type="search" id="snack-search" placeholder="Search snacks…">
+        <select id="snack-filter-category">
+          <option value="">All categories</option>
+        </select>
+        <select id="snack-filter-tag">
+          <option value="">All tags</option>
+        </select>
+        <select id="snack-filter-rating">
+          <option value="0">Any rating</option>
+          <option value="3">★ 3+</option>
+          <option value="4">★ 4+</option>
+          <option value="5">★ 5</option>
+        </select>
+        <label class="check-label"><input type="checkbox" id="snack-filter-fav"> Favorites</label>
+        <button id="add-snack-btn" class="btn btn-primary">+ Add Snack</button>
+      </div>
+      <div id="snack-grid" class="card-grid"></div>
+      <p id="snack-empty" class="empty-msg hidden">No snacks yet. Add your first snack!</p>
+    </section>
+
+    <!-- ============ RECIPES TAB ============ -->
+    <section id="tab-recipes" class="tab-panel">
+      <div class="toolbar">
+        <input type="url" id="import-url" placeholder="Paste a recipe URL to import…">
+        <button id="import-url-btn" class="btn btn-primary">Import from URL</button>
+        <button id="paste-html-btn" class="btn btn-ghost" title="Paste page HTML if URL fetch is blocked">Paste HTML</button>
+        <button id="add-recipe-btn" class="btn btn-ghost">+ Manual Entry</button>
+      </div>
+      <p id="import-status" class="import-status hidden"></p>
+      <div class="toolbar toolbar-sub">
+        <input type="search" id="recipe-search" placeholder="Search recipes…">
+      </div>
+      <div id="recipe-grid" class="card-grid"></div>
+      <p id="recipe-empty" class="empty-msg hidden">No recipes yet. Import one from a URL or add manually.</p>
+    </section>
+
+    <!-- ============ WEEKLY PLAN TAB ============ -->
+    <section id="tab-plan" class="tab-panel">
+      <div class="toolbar">
+        <label class="check-label" title="Max times the same category may appear">
+          Max per category
+          <select id="plan-max-category">
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="7">No limit</option>
+          </select>
+        </label>
+        <label class="check-label" title="Minimum homemade (recipe-linked) snacks">
+          Min homemade
+          <select id="plan-min-homemade">
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+          </select>
+        </label>
+        <label class="check-label"><input type="checkbox" id="plan-no-repeats" checked> Avoid last week's picks</label>
+        <button id="generate-plan-btn" class="btn btn-primary">🎲 Generate Week</button>
+      </div>
+      <p id="plan-note" class="import-status hidden"></p>
+      <div class="plan-section-head hidden">
+        <h2>🍿 Snacks</h2>
+        <button id="reroll-snacks-btn" class="btn btn-ghost btn-small" title="Re-roll snacks with a new random seed">Re-roll</button>
+      </div>
+      <div id="plan-grid" class="plan-grid"></div>
+      <div class="plan-section-head hidden">
+        <h2>🍽️ Dinners</h2>
+        <button id="reroll-dinners-btn" class="btn btn-ghost btn-small" title="Re-roll dinners with a new random seed">Re-roll</button>
+      </div>
+      <div id="dinner-grid" class="plan-grid"></div>
+      <p id="plan-empty" class="empty-msg">No plan yet. Add snacks and recipes, then hit <strong>Generate Week</strong> for a full week of snacks and dinners.</p>
+    </section>
+
+    <!-- ============ COLLECTIONS TAB ============ -->
+    <section id="tab-collections" class="tab-panel">
+      <div class="toolbar">
+        <input type="text" id="new-collection-name" placeholder="New collection name (e.g. Movie Night)">
+        <button id="add-collection-btn" class="btn btn-primary">+ Create Collection</button>
+      </div>
+      <div id="collections-list"></div>
+      <p id="collections-empty" class="empty-msg hidden">No collections yet. Create one to group snacks.</p>
+    </section>
+
+    <!-- ============ SETTINGS TAB ============ -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="settings-card">
+        <h2>Database</h2>
+        <div class="db-status-row">
+          <span id="db-dot" class="status-dot"></span>
+          <div>
+            <div id="db-status-text" class="db-status-text">Not connected</div>
+            <div id="db-file-name" class="card-meta"></div>
+            <div id="db-last-saved" class="card-meta"></div>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button id="db-connect-btn" class="btn btn-primary">Connect JSON file…</button>
+          <button id="db-create-btn" class="btn btn-ghost">Create new database file…</button>
+          <button id="db-reconnect-btn" class="btn btn-primary hidden">Reconnect</button>
+          <button id="db-disconnect-btn" class="btn btn-danger hidden">Disconnect</button>
+        </div>
+        <p id="db-unsupported-msg" class="import-status error hidden">
+          Live file access needs Chrome or Edge. Data still saves to this browser's local storage.
+        </p>
+        <p class="card-meta">
+          When connected, every change saves live to your JSON database file, and edits made to the
+          file outside the app are picked up automatically. The browser's local storage always keeps
+          a copy as an offline fallback.
+        </p>
+      </div>
+
+      <div class="settings-card">
+        <h2>☁️ Cloud Database (GitHub)</h2>
+        <div class="db-status-row">
+          <span id="cloud-dot" class="status-dot"></span>
+          <div>
+            <div id="cloud-status-text" class="db-status-text">Not connected</div>
+            <div id="cloud-repo-name" class="card-meta"></div>
+            <div id="cloud-last-synced" class="card-meta"></div>
+          </div>
+        </div>
+        <div id="cloud-form" class="cloud-form">
+          <div class="form-field">
+            <label>GitHub token</label>
+            <input type="password" id="cloud-token" placeholder="github_pat_… or ghp_…" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label>Private repository (owner/name)</label>
+            <input type="text" id="cloud-repo" value="lonesurvivor112/snakapp-db">
+          </div>
+          <div class="form-field">
+            <label>Database file</label>
+            <input type="text" id="cloud-path" value="snakapp-db.json">
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button id="cloud-connect-btn" class="btn btn-primary">Connect Cloud Database</button>
+          <button id="cloud-disconnect-btn" class="btn btn-danger hidden">Disconnect</button>
+        </div>
+        <p class="card-meta">
+          Syncs your whole database to a JSON file in your private GitHub repo — works on every
+          device, including iPhone. Changes save automatically and other devices pick them up
+          within a minute. The token is stored only on this device.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ MODAL ============ -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div id="modal-box" class="modal-box" role="dialog" aria-modal="true">
+      <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/importer.js"></script>
+  <script src="js/planner.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    // Offline support + installable app (only when served over https, e.g. GitHub Pages)
+    if ("serviceWorker" in navigator && location.protocol === "https:") {
+      navigator.serviceWorker.register("sw.js");
+    }
+  </script>
+</body>
+</html>
