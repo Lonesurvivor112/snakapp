@@ -2,7 +2,7 @@
  * Strategy: network-first with cache fallback for same-origin files, so
  * deploys show up on the next load while the app still works offline.
  * Cross-origin requests (GitHub API, proxies, recipe images) pass through. */
-const CACHE = "snakapp-v4";
+const CACHE = "snakapp-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -16,6 +16,7 @@ const ASSETS = [
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
+  "./icons/favicon-64.png",
 ];
 
 self.addEventListener("install", (e) => {

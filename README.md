@@ -1,3 +1,5 @@
+<p align="center"><img src="SnakApp-Logo.png" alt="SnakApp — Snack. Track. Create." width="360"></p>
+
 # 🍿 SnakApp
 
 A personal snack catalog, recipe tracker, and weekly meal planner — built as a single-page web app with no framework, no build step, and no server. Runs entirely in the browser and syncs its database to a private GitHub repo, so the same data follows you from PC to iPhone.
@@ -76,3 +78,5 @@ External services used at runtime (all free, no keys): Open Food Facts (barcode 
 - Recipe/product imports send only the URL or search term to the lookup services.
 
 ---
+
+🤖 Built with [Claude Code](https://claude.com/claude-code)
