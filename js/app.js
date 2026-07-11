@@ -302,7 +302,7 @@
             <span class="card-meta">${esc([p.brand, p.quantity].filter(Boolean).join(" · "))}</span>
           </button>`).join("")}
       </div>`);
-    $("#modal-content").addEventListener("click", (e) => {
+    $(".product-pick-grid").addEventListener("click", (e) => {
       const btn = e.target.closest(".product-pick");
       if (!btn) return;
       const p = results[+btn.dataset.i];
@@ -501,7 +501,7 @@
     };
     updateProgressText();
 
-    $("#modal-content").addEventListener("change", (e) => {
+    $(".cook-mode").addEventListener("change", (e) => {
       const cb = e.target.closest('input[type="checkbox"][data-kind]');
       if (!cb) return;
       const p = recipe.cookProgress || (recipe.cookProgress = { ing: [], steps: [] });
@@ -1160,6 +1160,276 @@
     }
   });
 
+  /* ================= Lunches ================= */
+
+  function lunchComponents(lunch) {
+    return [
+      ...(lunch.snackIds || []).map(id => (Storage.snacks.find(s => s.id === id) || {}).name).filter(Boolean),
+      ...(lunch.recipeIds || []).map(id => (Storage.recipes.find(r => r.id === id) || {}).name).filter(Boolean),
+      ...(lunch.extras || []),
+    ];
+  }
+
+  function renderLunches() {
+    $("#lunch-grid").innerHTML = Storage.lunches.map(l => {
+      const parts = lunchComponents(l);
+      return `
+        <div class="card" data-id="${l.id}">
+          <div class="card-body">
+            <h3 class="card-title">🥪 ${esc(l.name)}</h3>
+            <div class="card-meta">${parts.length} item(s)</div>
+            ${parts.length ? `<p class="card-notes">${esc(parts.join(" · "))}</p>` : ""}
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-ghost btn-small" data-action="today">→ Today's lunch</button>
+            <button class="btn btn-ghost btn-small" data-action="edit">Edit</button>
+            <button class="btn btn-danger btn-small" data-action="delete">Delete</button>
+          </div>
+        </div>`;
+    }).join("");
+    $("#lunch-empty").classList.toggle("hidden", Storage.lunches.length > 0);
+  }
+
+  function openLunchForm(lunch) {
+    const src = lunch || {};
+    const pickChips = (items, name, selected) => items.map(it => `
+      <label class="grocery-pick">
+        <input type="checkbox" name="${name}" value="${it.id}" ${(selected || []).includes(it.id) ? "checked" : ""}>
+        ${esc(it.name)}
+      </label>`).join("") || `<span class="card-meta">none available</span>`;
+    openModal(`
+      <h2>${src.id ? "Edit Lunch" : "Build a Lunch"}</h2>
+      <form id="lunch-form">
+        <div class="form-field">
+          <label>Name *</label>
+          <input name="name" required value="${esc(src.name)}" placeholder="e.g. Office Lunch, Light Friday">
+        </div>
+        <div class="form-field" style="margin-top: 0.7rem">
+          <label>Snacks in this lunch</label>
+          <div class="grocery-picker">${pickChips(Storage.snacks, "snack", src.snackIds)}</div>
+        </div>
+        <div class="form-field" style="margin-top: 0.7rem">
+          <label>Recipes in this lunch</label>
+          <div class="grocery-picker">${pickChips(Storage.recipes, "recipe", src.recipeIds)}</div>
+        </div>
+        <div class="form-field" style="margin-top: 0.7rem">
+          <label>Extras (one per line — anything not in the app)</label>
+          <textarea name="extras" rows="3" placeholder="PB&J sandwich&#10;Apple">${esc((src.extras || []).join("\n"))}</textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="lunch-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">${src.id ? "Save" : "Add Lunch"}</button>
+        </div>
+      </form>`);
+    $("#lunch-cancel").addEventListener("click", closeModal);
+    $("#lunch-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const values = {
+        name: fd.get("name").trim(),
+        snackIds: fd.getAll("snack"),
+        recipeIds: fd.getAll("recipe"),
+        extras: fd.get("extras").split("\n").map(s => s.trim()).filter(Boolean),
+      };
+      if (src.id) { Storage.updateLunch(src.id, values); toast("Lunch updated"); }
+      else { Storage.addLunch(values); toast("Lunch added"); }
+      closeModal();
+      renderLunches();
+    });
+  }
+
+  $("#add-lunch-btn").addEventListener("click", () => openLunchForm(null));
+
+  $("#lunch-grid").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const lunch = Storage.lunches.find(l => l.id === btn.closest(".card").dataset.id);
+    if (!lunch) return;
+    switch (btn.dataset.action) {
+      case "edit":
+        openLunchForm(lunch);
+        break;
+      case "delete":
+        if (confirm(`Delete lunch "${lunch.name}"?`)) {
+          Storage.deleteLunch(lunch.id);
+          renderLunches();
+          renderDaily();
+        }
+        break;
+      case "today": {
+        const date = todayStr();
+        const plan = Storage.getDailyPlan(date) || { morning: [], lunch: [], afternoon: [] };
+        plan.lunch.push({ type: "lunch", id: lunch.id });
+        Storage.setDailyPlan(date, plan);
+        $("#daily-date").value = date;
+        renderDaily();
+        toast(`Added to today's lunch (${lunch.name})`);
+        break;
+      }
+    }
+  });
+
+  /* ================= Daily plan ================= */
+
+  const DAILY_SLOTS = [["morning", "🌅 Morning"], ["lunch", "🥪 Lunch"], ["afternoon", "☀️ Afternoon"]];
+
+  function todayStr() {
+    const d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  function dailyItemLabel(it) {
+    if (it.type === "custom") return it.text || "?";
+    if (it.type === "snack") return (Storage.snacks.find(s => s.id === it.id) || {}).name || "(removed)";
+    if (it.type === "lunch") return "🥪 " + ((Storage.lunches.find(l => l.id === it.id) || {}).name || "(removed)");
+    if (it.type === "recipe") return "📖 " + ((Storage.recipes.find(r => r.id === it.id) || {}).name || "(removed)");
+    return "?";
+  }
+
+  function renderDaily() {
+    const date = $("#daily-date").value || todayStr();
+    const plan = Storage.getDailyPlan(date) || { morning: [], lunch: [], afternoon: [] };
+    $("#daily-slots").innerHTML = DAILY_SLOTS.map(([key, label]) => `
+      <div class="daily-slot" data-slot="${key}">
+        <h3>${label}</h3>
+        <div class="collection-items">
+          ${(plan[key] || []).map((it, i) =>
+            `<span class="collection-chip">${esc(dailyItemLabel(it))} <button data-rm-item="${i}" title="Remove">✕</button></span>`
+          ).join("") || `<span class="card-meta">nothing planned</span>`}
+        </div>
+        <button class="btn btn-ghost btn-small" data-add-item style="margin-top: 0.5rem">+ Add</button>
+      </div>`).join("");
+  }
+
+  function openAddDailyItem(slotKey) {
+    const date = $("#daily-date").value || todayStr();
+    openModal(`
+      <h2>Add to ${slotKey}</h2>
+      <div class="form-field">
+        <label>What kind of item?</label>
+        <select id="di-type">
+          <option value="snack" ${slotKey !== "lunch" ? "selected" : ""}>Snack</option>
+          <option value="lunch" ${slotKey === "lunch" ? "selected" : ""}>Lunch (built)</option>
+          <option value="recipe">Recipe</option>
+          <option value="custom">Custom (type anything)</option>
+        </select>
+      </div>
+      <div class="form-field" id="di-pick-wrap" style="margin-top: 0.6rem"></div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="di-cancel">Cancel</button>
+        <button class="btn btn-primary" id="di-add">Add</button>
+      </div>`);
+    const renderPicker = () => {
+      const t = $("#di-type").value;
+      if (t === "custom") {
+        $("#di-pick-wrap").innerHTML = `<label>Custom item</label><input id="di-custom" placeholder="e.g. Apple slices & peanut butter">`;
+        return;
+      }
+      const opts = t === "snack" ? Storage.snacks : t === "lunch" ? Storage.lunches : Storage.recipes;
+      $("#di-pick-wrap").innerHTML = `<label>Pick one</label>
+        <select id="di-pick">${opts.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join("") || `<option value="">— none available —</option>`}</select>`;
+    };
+    renderPicker();
+    $("#di-type").addEventListener("change", renderPicker);
+    $("#di-cancel").addEventListener("click", closeModal);
+    $("#di-add").addEventListener("click", () => {
+      const t = $("#di-type").value;
+      let entry;
+      if (t === "custom") {
+        const text = $("#di-custom").value.trim();
+        if (!text) return;
+        entry = { type: "custom", text };
+      } else {
+        const id = $("#di-pick").value;
+        if (!id) { toast("Nothing to pick from — add some first"); return; }
+        entry = { type: t, id };
+      }
+      const plan = Storage.getDailyPlan(date) || { morning: [], lunch: [], afternoon: [] };
+      plan[slotKey].push(entry);
+      Storage.setDailyPlan(date, plan);
+      closeModal();
+      renderDaily();
+    });
+  }
+
+  $("#daily-slots").addEventListener("click", (e) => {
+    const slotEl = e.target.closest("[data-slot]");
+    if (!slotEl) return;
+    const slotKey = slotEl.dataset.slot;
+    const rm = e.target.closest("[data-rm-item]");
+    if (rm) {
+      const date = $("#daily-date").value || todayStr();
+      const plan = Storage.getDailyPlan(date);
+      if (!plan) return;
+      plan[slotKey].splice(+rm.dataset.rmItem, 1);
+      Storage.setDailyPlan(date, plan);
+      renderDaily();
+      return;
+    }
+    if (e.target.closest("[data-add-item]")) openAddDailyItem(slotKey);
+  });
+
+  /* Weighted snack pick for suggestions: rating + freshness + randomness,
+   * avoiding repeats and (when possible) avoiding an already-used category */
+  function suggestSnack(excludeIds, excludeCategories) {
+    let pool = Storage.snacks.filter(s => !excludeIds.includes(s.id));
+    const varied = pool.filter(s => !excludeCategories.includes(s.category));
+    if (varied.length) pool = varied;
+    if (!pool.length) return null;
+    return pool.map(s => {
+      let freshness = 1;
+      if (s.lastPlannedAt) freshness = Math.min((Date.now() - new Date(s.lastPlannedAt).getTime()) / 86400000 / 28, 1);
+      return { s, score: 0.6 * ((s.rating || 3) / 5) + 0.3 * freshness + 0.4 * Math.random() };
+    }).sort((a, b) => b.score - a.score)[0].s;
+  }
+
+  $("#daily-suggest-btn").addEventListener("click", () => {
+    const date = $("#daily-date").value || todayStr();
+    const existing = Storage.getDailyPlan(date);
+    if (existing && (existing.morning.length || existing.lunch.length || existing.afternoon.length)) {
+      if (!confirm("Replace this day's plan with a fresh suggestion?")) return;
+    }
+    const plan = { morning: [], lunch: [], afternoon: [] };
+    const usedIds = [], usedCats = [];
+
+    const m = suggestSnack(usedIds, usedCats);
+    if (m) { plan.morning.push({ type: "snack", id: m.id }); usedIds.push(m.id); usedCats.push(m.category); }
+
+    if (Storage.lunches.length) {
+      const l = Storage.lunches[Math.floor(Math.random() * Storage.lunches.length)];
+      plan.lunch.push({ type: "lunch", id: l.id });
+    } else if (Storage.recipes.length) {
+      const quick = Storage.recipes.filter(r => !r.totalTime || r.totalTime <= 45);
+      const pool = quick.length ? quick : Storage.recipes;
+      plan.lunch.push({ type: "recipe", id: pool[Math.floor(Math.random() * pool.length)].id });
+    }
+
+    const a = suggestSnack(usedIds, usedCats);
+    if (a) plan.afternoon.push({ type: "snack", id: a.id });
+
+    if (!plan.morning.length && !plan.lunch.length && !plan.afternoon.length) {
+      toast("Add some snacks, lunches, or recipes first");
+      return;
+    }
+    Storage.setDailyPlan(date, plan);
+    renderDaily();
+    toast("Day suggested — tweak anything you like");
+  });
+
+  $("#daily-clear-btn").addEventListener("click", () => {
+    const date = $("#daily-date").value || todayStr();
+    if (!Storage.getDailyPlan(date)) return;
+    if (!confirm("Clear this day's plan?")) return;
+    Storage.setDailyPlan(date, { morning: [], lunch: [], afternoon: [] });
+    renderDaily();
+  });
+
+  $("#daily-today-btn").addEventListener("click", () => {
+    $("#daily-date").value = todayStr();
+    renderDaily();
+  });
+  $("#daily-date").addEventListener("change", renderDaily);
+
   /* ================= Collections ================= */
 
   function renderCollections() {
@@ -1497,10 +1767,13 @@
     renderGroceryPicker();
     renderGroceryList();
     renderSavedGroceryLists();
+    renderLunches();
+    renderDaily();
     renderCollections();
     renderCategoriesEditor();
     renderTagsEditor();
   }
+  $("#daily-date").value = todayStr();
   renderAll();
   renderDbStatus(Storage.fileInfo());
   renderCloudStatus(Storage.cloudInfo());

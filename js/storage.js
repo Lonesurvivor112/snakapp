@@ -28,6 +28,8 @@ const Storage = (() => {
     savedDinnerPlans: [],    // [{ id, name, savedAt, days }]
     categories: ["sweet", "savory", "salty", "healthy", "drink", "other"],
     tags: [],                // managed tag list (snacks can also carry ad-hoc tags)
+    lunches: [],             // [{ id, name, snackIds, recipeIds, extras[] }]
+    dailyPlans: {},          // "YYYY-MM-DD" → { morning: [], lunch: [], afternoon: [] } of {type, id, text}
   });
 
   /* Heal text damaged by an earlier import bug that split words after units
@@ -56,9 +58,20 @@ const Storage = (() => {
     }
   }
 
+  /* localStorage caps at ~5 MB — with uploaded photos it can fill up. The
+   * local copy is only a cache (file/cloud hold the real data), so a quota
+   * failure must never break saving. */
+  function cacheLocal() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn("SnakApp: local cache full — data still syncs to file/cloud.", e);
+    }
+  }
+
   function save() {
     data.updatedAt = new Date().toISOString(); // lets devices decide whose copy is newer
-    localStorage.setItem(KEY, JSON.stringify(data));
+    cacheLocal();
     scheduleFileWrite();
     scheduleCloudWrite();
   }
@@ -131,14 +144,18 @@ const Storage = (() => {
   }
 
   /* ---- writing ---- */
+  let fileWritePending = false;
+
   function scheduleFileWrite() {
     if (!fileHandle || fileStatus !== "connected") return;
     clearTimeout(writeTimer);
+    fileWritePending = true;
     writeTimer = setTimeout(writeFile, WRITE_DEBOUNCE_MS);
   }
 
   async function writeFile() {
     if (!fileHandle) return;
+    fileWritePending = false;
     writing = true;
     try {
       const writable = await fileHandle.createWritable();
@@ -165,7 +182,7 @@ const Storage = (() => {
     if (text.trim()) {
       const parsed = JSON.parse(text);
       data = repairSplitUnits(Object.assign(defaults(), parsed));
-      localStorage.setItem(KEY, JSON.stringify(data));
+      cacheLocal();
     } else {
       // brand-new empty file → seed it with whatever we have locally
       await writeFile();
@@ -183,8 +200,8 @@ const Storage = (() => {
           lastFileModified = f.lastModified;
           const text = await f.text();
           if (!text.trim()) return;
-          data = Object.assign(defaults(), JSON.parse(text));
-          localStorage.setItem(KEY, JSON.stringify(data));
+          data = repairSplitUnits(Object.assign(defaults(), JSON.parse(text)));
+          cacheLocal();
           reloadListeners.forEach(fn => fn());
           notifyStatus();
         }
@@ -357,14 +374,18 @@ const Storage = (() => {
     return (await res.json()).content.sha;
   }
 
+  let cloudWritePending = false;
+
   function scheduleCloudWrite() {
     if (!cloudCfg || cloudStatus === "disconnected") return;
     clearTimeout(cloudWriteTimer);
+    cloudWritePending = true;
     cloudWriteTimer = setTimeout(writeCloud, CLOUD_WRITE_DEBOUNCE_MS);
   }
 
   async function writeCloud() {
     if (!cloudCfg) return;
+    cloudWritePending = false;
     cloudWriting = true;
     try {
       const text = JSON.stringify(data, null, 2);
@@ -389,7 +410,7 @@ const Storage = (() => {
   function applyRemote(remoteText) {
     const remote = JSON.parse(remoteText);
     data = repairSplitUnits(Object.assign(defaults(), remote));
-    localStorage.setItem(KEY, JSON.stringify(data));
+    cacheLocal();
     reloadListeners.forEach(fn => fn());
   }
   const stamp = (obj) => Date.parse((obj && obj.updatedAt) || 0) || 0;
@@ -612,6 +633,43 @@ const Storage = (() => {
     save();
   }
 
+  /* ================= Lunches ================= */
+  function addLunch(lunch) {
+    lunch.id = uid();
+    lunch.createdAt = new Date().toISOString();
+    data.lunches.push(lunch);
+    save();
+    return lunch;
+  }
+  function updateLunch(id, patch) {
+    const l = data.lunches.find(l => l.id === id);
+    if (l) { Object.assign(l, patch); save(); }
+    return l;
+  }
+  function deleteLunch(id) {
+    data.lunches = data.lunches.filter(l => l.id !== id);
+    // Drop this lunch from any daily plans referencing it
+    Object.values(data.dailyPlans).forEach(plan => {
+      ["morning", "lunch", "afternoon"].forEach(slot => {
+        if (plan[slot]) plan[slot] = plan[slot].filter(it => !(it.type === "lunch" && it.id === id));
+      });
+    });
+    save();
+  }
+
+  /* ================= Daily plans ================= */
+  function getDailyPlan(date) {
+    return data.dailyPlans[date] || null;
+  }
+  function setDailyPlan(date, plan) {
+    if (plan && (plan.morning.length || plan.lunch.length || plan.afternoon.length)) {
+      data.dailyPlans[date] = plan;
+    } else {
+      delete data.dailyPlans[date]; // keep the map tidy
+    }
+    save();
+  }
+
   /* ================= Grocery list ================= */
   function setGroceryList(list) {
     data.groceryList = list;
@@ -689,6 +747,14 @@ const Storage = (() => {
     save();
   }
 
+  /* iOS suspends backgrounded web apps quickly — flush any pending debounced
+   * writes the moment the app goes to the background so nothing is lost */
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") return;
+    if (fileWritePending) { clearTimeout(writeTimer); writeFile(); }
+    if (cloudWritePending) { clearTimeout(cloudWriteTimer); writeCloud(); }
+  });
+
   return {
     get snacks() { return data.snacks; },
     get recipes() { return data.recipes; },
@@ -702,6 +768,8 @@ const Storage = (() => {
     get savedDinnerPlans() { return data.savedDinnerPlans; },
     get categories() { return data.categories; },
     get tags() { return data.tags; },
+    get lunches() { return data.lunches; },
+    addLunch, updateLunch, deleteLunch, getDailyPlan, setDailyPlan,
     setGroceryList, saveGroceryListAs, loadSavedGroceryList, deleteSavedGroceryList,
     updateDinnerPlan, saveDinnerPlanAs, loadSavedDinnerPlan, deleteSavedDinnerPlan, updatePlan,
     setCategories, renameCategoryEverywhere, setTags, renameTagEverywhere, removeTagEverywhere,
