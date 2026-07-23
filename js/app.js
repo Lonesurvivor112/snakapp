@@ -734,6 +734,25 @@
 
   let ideaItems = []; // the batch currently on screen; cards reference it by index
   let ideasLoading = false;
+  let ideasPref = (Suggest.get() || {}).pref || "all"; // remember the last-used type across visits
+
+  function ideaPrefLabel(id) {
+    return (Suggest.PREFS.find(p => p.id === id) || Suggest.PREFS[0]).label;
+  }
+
+  function renderIdeaPrefs() {
+    $("#ideas-prefs").innerHTML = Suggest.PREFS.map(p =>
+      `<button class="pref-chip ${p.id === ideasPref ? "active" : ""}" data-pref="${p.id}">${p.label}</button>`
+    ).join("");
+  }
+
+  $("#ideas-prefs").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-pref]");
+    if (!btn || ideasLoading || btn.dataset.pref === ideasPref) return;
+    ideasPref = btn.dataset.pref;
+    renderIdeaPrefs();
+    loadIdeas("pref");
+  });
 
   function setIdeasStatus(msg, isError) {
     const el = $("#ideas-status");
@@ -753,7 +772,7 @@
     const batch = freshBatch || (ideasLoading ? { items: ideaItems } : Suggest.get());
     ideaItems = (batch && batch.items) || [];
     $("#ideas-updated").textContent = batch && batch.fetchedAt
-      ? `Batch from ${ideasAgeLabel(batch.fetchedAt)} · auto-refreshes weekly` : "";
+      ? `${ideaPrefLabel(batch.pref || "all")} · batch from ${ideasAgeLabel(batch.fetchedAt)} · auto-refreshes weekly` : "";
     $("#ideas-grid").innerHTML = ideaItems.map((it, i) => {
       const already = Storage.recipes.some(r => r.sourceUrl === it.url);
       return `
@@ -774,19 +793,24 @@
     $("#ideas-empty").classList.toggle("hidden", ideasLoading || ideaItems.length > 0);
   }
 
-  async function loadIdeas(manual) {
+  async function loadIdeas(reason) { // "weekly" | "manual" | "pref"
     if (ideasLoading) return;
     const firstTime = !Suggest.get();
+    const label = ideaPrefLabel(ideasPref);
+    const slowNote = " (some sites take ~30 seconds; results appear as they land)";
     ideasLoading = true;
     $("#ideas-refresh-btn").disabled = true;
-    setIdeasStatus(manual
-      ? "Finding a fresh batch of ideas… (some sites take ~30 seconds; results appear as they land)"
-      : firstTime
-        ? "Loading recipe suggestions… (results appear as they land)"
-        : "It's been a week — refreshing your suggestions…");
+    setIdeasStatus(
+      reason === "manual"
+        ? (ideasPref === "all" ? "Finding a fresh batch of ideas…" : `Finding a fresh batch for ${label}…`) + slowNote
+        : reason === "pref"
+          ? `Finding ideas for ${label}…` + slowNote
+          : firstTime
+            ? "Loading recipe suggestions…" + slowNote
+            : "It's been a week — refreshing your suggestions…");
     renderIdeas();
     try {
-      await Suggest.refresh(manual, (partial) => renderIdeas(partial));
+      await Suggest.refresh({ manual: reason === "manual", pref: ideasPref }, (partial) => renderIdeas(partial));
       setIdeasStatus("");
     } catch (err) {
       setIdeasStatus("Couldn't fetch suggestions: " + err.message, true);
@@ -796,7 +820,8 @@
     renderIdeas();
   }
 
-  $("#ideas-refresh-btn").addEventListener("click", () => loadIdeas(true));
+  $("#ideas-refresh-btn").addEventListener("click", () => loadIdeas("manual"));
+  renderIdeaPrefs();
 
   $("#ideas-grid").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-add-idea]");
@@ -1893,6 +1918,6 @@
   Storage.initFileSync().then(renderAll);
   Storage.initCloudSync().then(renderAll);
   // Recipe suggestions refresh themselves once a week
-  if (Suggest.isStale()) loadIdeas(false);
+  if (Suggest.isStale()) loadIdeas("weekly");
 
 })();

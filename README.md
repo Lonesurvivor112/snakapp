@@ -23,6 +23,7 @@ A personal snack catalog, recipe tracker, and weekly meal planner — built as a
 ### 💡 Ideas
 - A grid of recipe suggestions pulled from popular food blogs (RecipeTin Eats, Budget Bytes, Damn Delicious, AllRecipes, Pinch of Yum, Natasha's Kitchen, Sally's Baking Addiction)
 - Refreshes itself weekly; **✨ New suggestions** pulls a different batch from the archives anytime
+- Preference chips (Chicken, Beef, Pork, Seafood, Pasta, Vegetarian, Soups, Desserts) fetch matching recipes via each site's own search
 - **+ Add** imports the full recipe (ingredients, steps, photo) straight into your collection
 
 ### 📅 Weekly Plan

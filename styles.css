@@ -136,6 +136,31 @@ main {
 .btn-danger:hover { text-decoration: underline; }
 .btn-small { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
 
+/* ---- Preference chips (Ideas tab) ---- */
+.pref-chips {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+.pref-chip {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pref-chip:hover { border-color: var(--accent); }
+.pref-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
 /* ---- Card grid ---- */
 .card-grid {
   display: grid;
