@@ -20,6 +20,11 @@ A personal snack catalog, recipe tracker, and weekly meal planner — built as a
 - **🍳 Cook mode**: tick off ingredients as you gather them and steps as you go — progress is saved, so you can close mid-recipe and pick up where you left off
 - One tap adds a recipe to the snack catalog (or creates a recipe from a snack)
 
+### 💡 Ideas
+- A grid of recipe suggestions pulled from popular food blogs (RecipeTin Eats, Budget Bytes, Damn Delicious, AllRecipes, Pinch of Yum, Natasha's Kitchen, Sally's Baking Addiction)
+- Refreshes itself weekly; **✨ New suggestions** pulls a different batch from the archives anytime
+- **+ Add** imports the full recipe (ingredients, steps, photo) straight into your collection
+
 ### 📅 Weekly Plan
 - Generates 7 days of **snacks** and 7 days of **dinners** with one click
 - Scoring balances your ratings, how recently something was planned (so the rotation stays fresh), and a dash of seeded randomness
@@ -64,12 +69,13 @@ icons/                app icons
 js/
   storage.js          localStorage + live-file sync + GitHub cloud sync
   importer.js         recipe & product import (JSON-LD, reader fallback, barcode/name lookup)
+  suggest.js          recipe suggestions from food blogs (WordPress APIs + reader fallback)
   planner.js          weekly snack & dinner generators (seeded RNG, variety constraints)
   grocery.js          ingredient parsing, merging, and purchase estimates
   app.js              all UI wiring and rendering
 ```
 
-External services used at runtime (all free, no keys): Open Food Facts (barcode & name lookup), UPCitemdb (barcode fallback), r.jina.ai (rendering reader for protected recipe sites), assorted CORS proxies, and the GitHub API (your own private repo, with your token).
+External services used at runtime (all free, no keys): Open Food Facts (barcode & name lookup), UPCitemdb (barcode fallback), r.jina.ai (rendering reader for protected recipe sites), the food blogs' own public WordPress APIs (recipe suggestions), assorted CORS proxies, and the GitHub API (your own private repo, with your token).
 
 ## Privacy
 

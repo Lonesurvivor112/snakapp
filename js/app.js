@@ -730,6 +730,117 @@
     }
   });
 
+  /* ================= Ideas (recipe suggestions) ================= */
+
+  let ideaItems = []; // the batch currently on screen; cards reference it by index
+  let ideasLoading = false;
+
+  function setIdeasStatus(msg, isError) {
+    const el = $("#ideas-status");
+    if (!msg) { el.classList.add("hidden"); return; }
+    el.textContent = msg;
+    el.classList.toggle("error", !!isError);
+    el.classList.remove("hidden");
+  }
+
+  function ideasAgeLabel(fetchedAt) {
+    const days = Math.floor((Date.now() - new Date(fetchedAt).getTime()) / 86400000);
+    return days <= 0 ? "today" : days === 1 ? "yesterday" : days + " days ago";
+  }
+
+  function renderIdeas(freshBatch) {
+    // While a refresh is in flight, keep showing the partial batch instead of the stale cache
+    const batch = freshBatch || (ideasLoading ? { items: ideaItems } : Suggest.get());
+    ideaItems = (batch && batch.items) || [];
+    $("#ideas-updated").textContent = batch && batch.fetchedAt
+      ? `Batch from ${ideasAgeLabel(batch.fetchedAt)} · auto-refreshes weekly` : "";
+    $("#ideas-grid").innerHTML = ideaItems.map((it, i) => {
+      const already = Storage.recipes.some(r => r.sourceUrl === it.url);
+      return `
+        <div class="card">
+          ${it.image ? `<img class="card-img" src="${esc(it.image)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+          <div class="card-body">
+            <h3 class="card-title">${esc(it.title)}</h3>
+            <div class="card-meta">${esc(it.source)}</div>
+            <a class="source-link" href="${esc(it.url)}" target="_blank" rel="noopener">View on site ↗</a>
+          </div>
+          <div class="card-actions">
+            ${already
+              ? `<button class="btn btn-ghost btn-small" disabled>✓ In your recipes</button>`
+              : `<button class="btn btn-primary btn-small" data-add-idea="${i}">+ Add</button>`}
+          </div>
+        </div>`;
+    }).join("");
+    $("#ideas-empty").classList.toggle("hidden", ideasLoading || ideaItems.length > 0);
+  }
+
+  async function loadIdeas(manual) {
+    if (ideasLoading) return;
+    const firstTime = !Suggest.get();
+    ideasLoading = true;
+    $("#ideas-refresh-btn").disabled = true;
+    setIdeasStatus(manual
+      ? "Finding a fresh batch of ideas… (some sites take ~30 seconds; results appear as they land)"
+      : firstTime
+        ? "Loading recipe suggestions… (results appear as they land)"
+        : "It's been a week — refreshing your suggestions…");
+    renderIdeas();
+    try {
+      await Suggest.refresh(manual, (partial) => renderIdeas(partial));
+      setIdeasStatus("");
+    } catch (err) {
+      setIdeasStatus("Couldn't fetch suggestions: " + err.message, true);
+    }
+    ideasLoading = false;
+    $("#ideas-refresh-btn").disabled = false;
+    renderIdeas();
+  }
+
+  $("#ideas-refresh-btn").addEventListener("click", () => loadIdeas(true));
+
+  $("#ideas-grid").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-add-idea]");
+    if (!btn) return;
+    const item = ideaItems[+btn.dataset.addIdea];
+    if (!item) return;
+    btn.disabled = true;
+    btn.textContent = "Adding…";
+    setIdeasStatus(`Importing “${item.title}”… (protected sites can take ~20–30 seconds)`);
+    try {
+      const draft = await Importer.importFromUrl(item.url);
+      const values = {
+        name: draft.name || item.title,
+        prepTime: draft.prepTime || null,
+        cookTime: draft.cookTime || null,
+        totalTime: draft.totalTime || null,
+        servings: draft.servings || "",
+        image: draft.image || item.image || "",
+        ingredients: draft.ingredients || [],
+        instructions: draft.instructions || [],
+        sourceUrl: item.url,
+        nutrition: draft.nutrition || "",
+        rawSchema: draft.rawSchema || null,
+        importMethod: draft.importMethod || "suggestion",
+      };
+      if (!values.ingredients.length) {
+        // Only page metadata came through — let the user fill in the rest
+        setIdeasStatus("Got the basics but not the full recipe — review, fill in, and save.");
+        openRecipeForm(null, values, () => renderIdeas());
+      } else {
+        Storage.addRecipe(values);
+        setIdeasStatus("");
+        toast(`“${values.name}” added to your recipes 🎉`);
+        renderRecipes();
+        renderGroceryPicker();
+        renderIdeas();
+      }
+    } catch (err) {
+      setIdeasStatus("Auto-import didn't work (" + err.message + ") — you can save it by hand.", true);
+      openRecipeForm(null, { name: item.title, image: item.image || "", sourceUrl: item.url }, () => renderIdeas());
+      if (btn.isConnected) { btn.disabled = false; btn.textContent = "+ Add"; }
+    }
+  });
+
   /* ================= Weekly plan ================= */
 
   function renderPlan() {
@@ -1767,6 +1878,7 @@
     renderGroceryPicker();
     renderGroceryList();
     renderSavedGroceryLists();
+    renderIdeas();
     renderLunches();
     renderDaily();
     renderCollections();
@@ -1780,5 +1892,7 @@
   // Restore previous connections; re-render once their data is loaded
   Storage.initFileSync().then(renderAll);
   Storage.initCloudSync().then(renderAll);
+  // Recipe suggestions refresh themselves once a week
+  if (Suggest.isStale()) loadIdeas(false);
 
 })();

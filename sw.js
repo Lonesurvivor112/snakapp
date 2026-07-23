@@ -2,7 +2,7 @@
  * Strategy: network-first with cache fallback for same-origin files, so
  * deploys show up on the next load while the app still works offline.
  * Cross-origin requests (GitHub API, proxies, recipe images) pass through. */
-const CACHE = "snakapp-v7";
+const CACHE = "snakapp-v8";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,6 +10,7 @@ const ASSETS = [
   "./manifest.webmanifest",
   "./js/storage.js",
   "./js/importer.js",
+  "./js/suggest.js",
   "./js/planner.js",
   "./js/grocery.js",
   "./js/app.js",
