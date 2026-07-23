@@ -25,25 +25,45 @@ const Suggest = (() => {
     { name: "Sally's Baking Addiction", type: "wp", api: "https://sallysbakingaddiction.com/wp-json/wp/v2/posts" },
   ];
 
-  /* Preference chips shown on the Ideas tab. `term` feeds each site's own
-   * search; `re` floats title matches to the top (site search also matches
-   * post bodies); `noMeat` additionally screens titles for the vegetarian pick. */
-  const PREFS = [
-    { id: "all", label: "🍽️ All types", term: "" },
-    { id: "chicken", label: "🍗 Chicken", term: "chicken", re: /\bchicken\b/i },
-    { id: "beef", label: "🥩 Beef", term: "beef", re: /\b(beef|steaks?|burgers?|brisket)\b/i },
-    { id: "pork", label: "🥓 Pork", term: "pork", re: /\b(pork|bacon|ham|sausage|ribs|carnitas|prosciutto|chorizo)\b/i },
-    { id: "seafood", label: "🐟 Seafood", term: "seafood", re: /\b(shrimp|salmon|fish|tuna|cod|tilapia|scallops?|crab|lobster|seafood|prawns?)\b/i },
-    { id: "pasta", label: "🍝 Pasta", term: "pasta", re: /\b(pasta|spaghetti|lasagna|penne|fettuccine|linguine|macaroni|noodles?|gnocchi|ravioli|tortellini|orzo)\b/i },
-    { id: "vegetarian", label: "🥦 Vegetarian", term: "vegetarian", noMeat: true },
-    { id: "soup", label: "🍲 Soups", term: "soup", re: /\b(soups?|stews?|chowder|bisque|minestrone)\b/i },
-    { id: "dessert", label: "🍰 Desserts", term: "dessert", re: /\b(cakes?|cookies?|brownies?|pies?|muffins?|desserts?|cheesecake|pudding|ice cream|scones?|cobbler|tarts?|fudge|donuts?|cupcakes?|blondies)\b/i },
-  ];
-
   const MEAT_RE = /\b(chicken|beef|steak|pork|bacon|ham|sausage|turkey|lamb|meatballs?|burgers?|brisket|ribs|pepperoni|chorizo|prosciutto|carnitas|bulgogi|salmon|shrimp|tuna|cod|tilapia|fish|crab|lobster|scallops?|anchov\w+)\b/i;
 
+  /* Preference chips shown on the Ideas tab.
+   *  term:        feeds each site's own search
+   *  titleSearch: ask WordPress sites to match the term in titles only —
+   *               far more precise than the default body-text search
+   *  re / ex:     a suggestion is kept only when its title matches `re` and
+   *               not `ex` (covers the reader-service sites and any site
+   *               that ignores title-only search)
+   *  noMeat:      screens out meat/seafood titles for the vegetarian pick   */
+  const PREFS = [
+    { id: "all", label: "🍽️ All types", term: "" },
+    { id: "chicken", label: "🍗 Chicken", term: "chicken", titleSearch: true,
+      re: /\b(chicken|drumsticks?|wings)\b/i, ex: /\b(cauliflower|tofu|vegan)\b/i },
+    { id: "beef", label: "🥩 Beef", term: "beef", titleSearch: true,
+      re: /\b(beef|steaks?|brisket|meatloaf|bolognese|birria|bulgogi|pot roast|short ribs?|burgers?|meatballs?)\b/i,
+      ex: /\b(chicken|turkey|pork|lamb|salmon|tuna|veggie|vegan|black bean|portobello)\b/i },
+    { id: "pork", label: "🥓 Pork", term: "pork", titleSearch: true,
+      re: /\b(pork|bacon|ham|sausage|ribs|carnitas|prosciutto|chorizo|bratwursts?|kielbasa)\b/i,
+      ex: /\b(beef|chicken|turkey|short ribs?)\b/i },
+    { id: "seafood", label: "🐟 Seafood", term: "seafood",
+      re: /\b(shrimp|salmon|fish|tuna|cod|tilapia|scallops?|crab|lobster|seafood|prawns?|mussels?|clams?|oysters?|calamari|halibut|snapper|trout|mahi|crawfish)\b/i },
+    { id: "pasta", label: "🍝 Pasta", term: "pasta", titleSearch: true,
+      re: /\b(pasta|spaghetti|lasagna|penne|fettuccine|linguine|macaroni|noodles?|gnocchi|ravioli|tortellini|orzo|carbonara|alfredo|ziti|rigatoni|cacio e pepe|mac (and|&|'?n'?) cheese)\b/i },
+    { id: "soup", label: "🍲 Soups", term: "soup", titleSearch: true,
+      re: /\b(soups?|stews?|chowders?|bisque|minestrone|ramen|pho|gumbo|goulash)\b/i },
+    { id: "vegetarian", label: "🥦 Vegetarian", term: "vegetarian", noMeat: true },
+    { id: "veggies", label: "🥕 Veggies & Sides", term: "side dish",
+      re: /\b(vegetables?|veggies?|salads?|slaws?|green beans?|asparagus|broccoli|cauliflower|brussels?( sprouts?)?|zucchini|squash|carrots?|cabbage|beets?|eggplant|mushrooms?|corn|cornbread|coleslaw|side dish(?!es)|greens|cucumber|peppers?|spinach|kale|quinoa|couscous)\b/i,
+      ex: MEAT_RE }, // sides shouldn't be meat mains that merely mention a veggie
+    { id: "potato", label: "🥔 Potatoes", term: "potato", titleSearch: true,
+      re: /\b(potato(es)?|fries|hash ?browns?|tater ?tots?|gnocchi)\b/i },
+    { id: "dessert", label: "🍰 Desserts", term: "dessert", titleSearch: true,
+      re: /\b(cakes?|cookies?|brownies?|pies?|muffins?|desserts?|cheesecakes?|pudding|ice cream|scones?|cobblers?|tarts?|fudge|donuts?|doughnuts?|cupcakes?|blondies|candy|truffles?|macarons?|shortbread|biscotti|mousse|tiramisu|panna cotta|eclairs?|churros?|baklava|snickerdoodles?|cinnamon rolls?|banana bread)\b/i,
+      ex: /\b(chicken|beef|pork|turkey|shepherd'?s|cottage|pot pies?|pizza|tamale|empanadas?)\b/i },
+  ];
+
   /* Roundups, meal-plan posts, giveaways, and promo banners aren't single recipes — skip them */
-  const SKIP_TITLE = /^\d+\+?\s|^image \d+$|\b(meal plans?|round[ -]?ups?|what i ate|giveaway|sweepstakes|gift card|chance to win|week of|gift guide|ideas)\b/i;
+  const SKIP_TITLE = /^\d+\+?\s|^image \d+$|recipes\s*$|\b(meal plans?|round[ -]?ups?|what i ate|giveaway|sweepstakes|gift card|chance to win|week of|gift guide|ideas)\b/i;
 
   const ta = document.createElement("textarea");
   function decodeEntities(s) { ta.innerHTML = s || ""; return ta.value; }
@@ -70,13 +90,19 @@ const Suggest = (() => {
       post.jetpack_featured_media_url || (media && media.source_url) || "";
   }
 
-  async function fetchWp(src, offset, pref) {
-    const query = (off) => src.api + "?per_page=" + PER_SOURCE + "&offset=" + off +
-      (pref.term ? "&search=" + encodeURIComponent(pref.term) : "") +
+  async function fetchWp(src, offset, pref, count) {
+    const query = (off, titleOnly) => src.api + "?per_page=" + count + "&offset=" + off +
+      (pref.term
+        ? "&search=" + encodeURIComponent(pref.term) + (titleOnly ? "&search_columns=post_title" : "")
+        : "") +
       "&_embed=wp:featuredmedia&_fields=link,title,date,jetpack_featured_media_url,_links,_embedded";
-    let posts = JSON.parse(await fetchWithTimeout(query(offset), 12000));
+    const titleOnly = !!pref.titleSearch;
+    let posts = JSON.parse(await fetchWithTimeout(query(offset, titleOnly), 12000));
     if (!posts.length && offset > 0) { // dug past the end of a small result set
-      posts = JSON.parse(await fetchWithTimeout(query(0), 12000));
+      posts = JSON.parse(await fetchWithTimeout(query(0, titleOnly), 12000));
+    }
+    if (!posts.length && titleOnly) { // no title matches on this site — try its full search
+      posts = JSON.parse(await fetchWithTimeout(query(0, false), 12000));
     }
     return posts.map(p => ({
       title: decodeEntities((p.title && p.title.rendered) || "").trim(),
@@ -95,7 +121,7 @@ const Suggest = (() => {
     const items = [];
     const re = /\[!\[(?:Image \d+:?\s*)?([^\]]*)\]\((https:\/\/damndelicious\.net\/wp-content\/[^)\s]+)\)\s*(?:###\s+([^\]]+))?\]\((https:\/\/damndelicious\.net\/\d{4}\/\d{2}\/\d{2}\/[a-z0-9-]+\/)/g;
     let m;
-    while ((m = re.exec(md)) && items.length < PER_SOURCE) {
+    while ((m = re.exec(md)) && items.length < PER_SOURCE * 2) {
       const title = decodeEntities((m[3] || m[1] || "").trim());
       if (!title || SKIP_TITLE.test(title) || items.some(it => it.url === m[4])) continue;
       items.push({ title, url: m[4], image: m[2], source: src.name });
@@ -125,7 +151,7 @@ const Suggest = (() => {
 
     const items = [];
     for (const [id, { url, slug }] of links) {
-      if (items.length >= PER_SOURCE) break;
+      if (items.length >= PER_SOURCE * 2) break;
       const title = slugTitle(slug);
       if (!title || SKIP_TITLE.test(title)) continue;
       items.push({ title, url, image: images.get(id) || "", source: src.name });
@@ -147,16 +173,18 @@ const Suggest = (() => {
     if (src.type === "jina") {
       job = fetchJina(src, pref);
     } else {
+      // fetch double when a filter will thin the list out afterwards
+      const count = (pref.re || pref.noMeat) ? PER_SOURCE * 2 : PER_SOURCE;
       const depth = pref.term ? 3 : 12;
-      const offset = manual ? PER_SOURCE * (1 + Math.floor(Math.random() * depth)) : 0;
-      job = fetchWp(src, offset, pref);
+      const offset = manual ? count * (1 + Math.floor(Math.random() * depth)) : 0;
+      job = fetchWp(src, offset, pref, count);
     }
     return job.then(list => {
       if (pref.noMeat) list = list.filter(it => !MEAT_RE.test(it.title));
-      if (pref.re) { // title matches outrank body-text matches from the site's search
-        list = list.slice().sort((a, b) => (pref.re.test(b.title) ? 1 : 0) - (pref.re.test(a.title) ? 1 : 0));
+      if (pref.re) { // strict: only keep suggestions whose title names the picked type
+        list = list.filter(it => pref.re.test(it.title) && !(pref.ex && pref.ex.test(it.title)));
       }
-      return list;
+      return list.slice(0, PER_SOURCE);
     });
   }
 
