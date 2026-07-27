@@ -58,9 +58,31 @@ const Suggest = (() => {
     { id: "potato", label: "🥔 Potatoes", term: "potato", titleSearch: true,
       re: /\b(potato(es)?|fries|hash ?browns?|tater ?tots?|gnocchi)\b/i },
     { id: "dessert", label: "🍰 Desserts", term: "dessert", titleSearch: true,
-      re: /\b(cakes?|cookies?|brownies?|pies?|muffins?|desserts?|cheesecakes?|pudding|ice cream|scones?|cobblers?|tarts?|fudge|donuts?|doughnuts?|cupcakes?|blondies|candy|truffles?|macarons?|shortbread|biscotti|mousse|tiramisu|panna cotta|eclairs?|churros?|baklava|snickerdoodles?|cinnamon rolls?|banana bread)\b/i,
+      re: /\b(cakes?|cookies?|brownies?|pies?|muffins?|desserts?|cheesecakes?|pudding|ice cream|scones?|cobblers?|tarts?|fudge|donuts?|doughnuts?|cupcakes?|blondies|candy|truffles?|macarons?|macaroons?|shortbread|biscotti|mousse|tiramisu|panna cotta|eclairs?|churros?|baklava|snickerdoodles?|cinnamon rolls?|banana bread|s['’]?mores|puppy chow|rice krispies?|marshmallows?|meringues?|custard|flan|gelato|sorbet|popsicles?|toffee|pralines?|parfaits?|trifle)\b/i,
       ex: /\b(chicken|beef|pork|turkey|shepherd'?s|cottage|pot pies?|pizza|tamale|empanadas?)\b/i },
   ];
+
+  const SPECIFIC = PREFS.filter(p => p.id !== "all"); // the real food types (no "All")
+
+  /* Food-type taxonomy reused by the Recipes page: the same types, plus a
+   * catch-all. `classifyTitle` guesses a recipe's type from its title. */
+  const OTHER = { id: "other", label: "🍴 Other" };
+  const FOOD_TYPES = [...SPECIFIC.map(p => ({ id: p.id, label: p.label })), OTHER];
+  const CLASSIFY_ORDER = ["chicken", "beef", "pork", "seafood", "dessert", "pasta", "soup", "potato", "veggies"];
+
+  function classifyTitle(title) {
+    const t = String(title || "");
+    for (const id of CLASSIFY_ORDER) {
+      const p = SPECIFIC.find(x => x.id === id);
+      if (p && p.re && p.re.test(t) && !(p.ex && p.ex.test(t))) return id;
+    }
+    return "other"; // vegetarian isn't guessable from a title — left for the user to set
+  }
+
+  function foodTypeLabel(id) {
+    const f = FOOD_TYPES.find(x => x.id === id);
+    return f ? f.label : OTHER.label;
+  }
 
   /* Roundups, meal-plan posts, giveaways, and promo banners aren't single recipes — skip them */
   const SKIP_TITLE = /^\d+\+?\s|^image \d+$|recipes\s*$|\b(meal plans?|round[ -]?ups?|what i ate|giveaway|sweepstakes|gift card|chance to win|week of|gift guide|ideas)\b/i;
@@ -165,27 +187,75 @@ const Suggest = (() => {
     return src.page.includes("damndelicious") ? parseDamnDelicious(md, src) : parseAllRecipes(md, src);
   }
 
-  /* Weekly auto-refresh and preference switches show each site's best matches;
-   * a manual refresh digs into the archives at a random depth so the batch
-   * actually changes (shallower when a search term narrows the result pool) */
-  function fetchSource(src, manual, pref) {
-    let job;
-    if (src.type === "jina") {
-      job = fetchJina(src, pref);
-    } else {
-      // fetch double when a filter will thin the list out afterwards
-      const count = (pref.re || pref.noMeat) ? PER_SOURCE * 2 : PER_SOURCE;
-      const depth = pref.term ? 3 : 12;
-      const offset = manual ? count * (1 + Math.floor(Math.random() * depth)) : 0;
-      job = fetchWp(src, offset, pref, count);
-    }
-    return job.then(list => {
-      if (pref.noMeat) list = list.filter(it => !MEAT_RE.test(it.title));
-      if (pref.re) { // strict: only keep suggestions whose title names the picked type
-        list = list.filter(it => pref.re.test(it.title) && !(pref.ex && pref.ex.test(it.title)));
+  /* Strict per-type title check: keep only titles that name the type (and, for
+   * vegetarian, name no meat). This is what makes "Chicken" actually all chicken. */
+  function applyPrefFilter(list, pref) {
+    if (pref.noMeat) list = list.filter(it => !MEAT_RE.test(it.title));
+    if (pref.re) list = list.filter(it => pref.re.test(it.title) && !(pref.ex && pref.ex.test(it.title)));
+    return list;
+  }
+
+  /* Exclusion keeps everything that doesn't name an unwanted type — including
+   * uncategorizable recipes, so "everything except desserts" really means it. */
+  function dropExcluded(list, excluded) {
+    return list.filter(it => !excluded.some(p => p.re && p.re.test(it.title)));
+  }
+
+  /* One WordPress source, searched for a single type. A manual refresh digs into
+   * the archives at a random depth so the batch actually changes (shallower when
+   * a search term already narrows the pool). */
+  function fetchWpForPref(src, manual, pref) {
+    const count = (pref.re || pref.noMeat) ? PER_SOURCE * 2 : PER_SOURCE; // over-fetch; the filter thins it
+    const depth = pref.term ? 3 : 12;
+    const offset = manual ? count * (1 + Math.floor(Math.random() * depth)) : 0;
+    return fetchWp(src, offset, pref, count).then(list => applyPrefFilter(list, pref).slice(0, PER_SOURCE));
+  }
+
+  const ALL_PREF = PREFS[0]; // { term: "" } — latest posts / homepage, unfiltered
+
+  /* Fetch one source under a plan: { mode, included, excluded }.
+   *  all      → latest posts, no filter
+   *  exclude  → latest posts minus the unwanted types (few requests, keeps misc.)
+   *  include  → search each wanted type and merge (precise; the common case) */
+  function fetchSourceMulti(src, manual, plan) {
+    if (src.type === "wp") {
+      if (plan.mode === "include") {
+        return Promise.all(plan.included.map(p => fetchWpForPref(src, manual, p).catch(() => [])))
+          .then(lists => interleave(lists, PER_SOURCE));
       }
-      return list.slice(0, PER_SOURCE);
-    });
+      const count = plan.mode === "exclude" ? PER_SOURCE * 2 : PER_SOURCE;
+      const offset = manual ? count * (1 + Math.floor(Math.random() * 12)) : 0;
+      return fetchWp(src, offset, ALL_PREF, count).then(list =>
+        (plan.mode === "exclude" ? dropExcluded(list, plan.excluded) : list).slice(0, PER_SOURCE));
+    }
+    // reader-service source: keep it to one request each so we never hammer r.jina.ai
+    if (plan.mode === "include") {
+      if (plan.included.length === 1) { // a single type → use the site's own search
+        const p = plan.included[0];
+        return fetchJina(src, p).then(list => applyPrefFilter(list, p).slice(0, PER_SOURCE));
+      }
+      return fetchJina(src, ALL_PREF).then(list => // several types → filter the homepage
+        list.filter(it => plan.included.some(p => p.re && p.re.test(it.title) && !(p.ex && p.ex.test(it.title))))
+          .slice(0, PER_SOURCE));
+    }
+    return fetchJina(src, ALL_PREF).then(list =>
+      (plan.mode === "exclude" ? dropExcluded(list, plan.excluded) : list).slice(0, PER_SOURCE));
+  }
+
+  /* Turn a set of chosen type ids into a fetch plan. Choosing more than half the
+   * types flips to exclusion (fewer requests, and it keeps miscellaneous recipes). */
+  function planFrom(ids) {
+    const seen = new Set();
+    const selected = ids.map(id => SPECIFIC.find(p => p.id === id))
+      .filter(p => p && !seen.has(p.id) && seen.add(p.id));
+    if (!selected.length || selected.length === SPECIFIC.length) {
+      return { mode: "all", included: [], excluded: [], ids: [] };
+    }
+    if (selected.length > SPECIFIC.length / 2) {
+      return { mode: "exclude", included: [], excluded: SPECIFIC.filter(p => !selected.includes(p)),
+        ids: selected.map(p => p.id) };
+    }
+    return { mode: "include", included: selected, excluded: [], ids: selected.map(p => p.id) };
   }
 
   /* Round-robin across sources so no single site dominates the top of the grid */
@@ -216,35 +286,37 @@ const Suggest = (() => {
       Date.now() - new Date(c.fetchedAt).getTime() > WEEK_MS;
   }
 
-  /* opts: { manual, pref } — pref is a PREFS id. onUpdate fires as each source
-   * lands so the grid fills in progressively (the reader-service sources can
-   * take ~30 s; the API ones land in ~2 s) */
+  /* opts: { manual, prefs } — prefs is an array of PREFS ids (empty = all types;
+   * `pref` singular is still accepted). onUpdate fires as each source lands so the
+   * grid fills in progressively (reader-service sources ~30 s; API ones ~2 s). */
   async function refresh(opts, onUpdate) {
     const manual = !!(opts && opts.manual);
-    const pref = PREFS.find(p => p.id === ((opts && opts.pref) || "all")) || PREFS[0];
+    let ids = (opts && opts.prefs) || (opts && opts.pref ? [opts.pref] : []);
+    ids = (ids || []).filter(id => id && id !== "all");
+    const plan = planFrom(ids);
     const collected = [];
     const assemble = () => ({
       fetchedAt: new Date().toISOString(),
-      pref: pref.id,
+      prefs: plan.ids,
       items: interleave(collected, MAX_ITEMS),
     });
     await Promise.all(SOURCES.map(src =>
-      fetchSource(src, manual, pref).then(list => {
-        if (list.length) {
+      fetchSourceMulti(src, manual, plan).then(list => {
+        if (list && list.length) {
           collected.push(list);
           if (onUpdate) onUpdate(assemble());
         }
       }, () => {}) // a dead source just sits this batch out
     ));
     if (!collected.length) {
-      throw new Error(pref.term
-        ? "no matches came back for that type — try another type, or check your connection"
-        : "no suggestion sources reachable — check your connection and try again");
+      throw new Error(plan.mode === "all"
+        ? "no suggestion sources reachable — check your connection and try again"
+        : "no matches came back for those types — try different types, or check your connection");
     }
     const payload = assemble();
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(payload)); } catch (e) {}
     return payload;
   }
 
-  return { get, isStale, refresh, PREFS };
+  return { get, isStale, refresh, PREFS, FOOD_TYPES, classifyTitle, foodTypeLabel };
 })();

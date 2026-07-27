@@ -17,6 +17,7 @@ A personal snack catalog, recipe tracker, and weekly meal planner — built as a
 ### 📖 Recipe Tracker
 - Paste any recipe URL — the importer extracts the structured Recipe schema (JSON-LD), falling back to a rendering reader service for bot-protected sites (AllRecipes, RecipeTin Eats, etc.), then to metadata, then to manual entry
 - Ingredients, steps, prep/cook/total times, servings, photo, and source link
+- **Food type** on every recipe (Chicken, Beef, Pasta, Dessert, Veggies & Sides, …), auto-detected from the title and editable — filter the page by type to view just one kind
 - **🍳 Cook mode**: tick off ingredients as you gather them and steps as you go — progress is saved, so you can close mid-recipe and pick up where you left off
 - One tap adds a recipe to the snack catalog (or creates a recipe from a snack)
 
@@ -24,6 +25,7 @@ A personal snack catalog, recipe tracker, and weekly meal planner — built as a
 - A grid of recipe suggestions pulled from popular food blogs (RecipeTin Eats, Budget Bytes, Damn Delicious, AllRecipes, Pinch of Yum, Natasha's Kitchen, Sally's Baking Addiction)
 - Refreshes itself weekly; **✨ New suggestions** pulls a different batch from the archives anytime
 - Preference chips (Chicken, Beef, Pork, Seafood, Pasta, Soups, Vegetarian, Veggies & Sides, Potatoes, Desserts) fetch matching recipes via each site's own search — title-only search where supported, plus a strict title filter so a chicken batch is actually all chicken
+- **Multi-select**: pick several types at once, or pick everything except the one you're avoiding (e.g. all-but-desserts) — choosing most types flips to "exclude" mode so miscellaneous recipes stay in
 - **+ Add** imports the full recipe (ingredients, steps, photo) straight into your collection
 
 ### 📅 Weekly Plan

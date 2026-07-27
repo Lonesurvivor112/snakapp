@@ -409,6 +409,12 @@
     return h + " h" + (m ? " " + m + " min" : "");
   }
 
+  /* A recipe's food type: the one the user set, else a guess from the title.
+   * Older recipes saved before this feature get classified on the fly. */
+  function recipeFoodType(recipe) {
+    return recipe.foodType || Suggest.classifyTitle(recipe.name);
+  }
+
   function recipeCardHtml(recipe) {
     return `
       <div class="card" data-id="${recipe.id}">
@@ -420,6 +426,7 @@
             ${recipe.servings ? esc(recipe.servings) + " · " : ""}
             ${(recipe.ingredients || []).length} ingredients
           </div>
+          <div class="tag-row"><span class="tag">${esc(Suggest.foodTypeLabel(recipeFoodType(recipe)))}</span></div>
           ${recipe.sourceUrl ? `<a class="source-link" href="${esc(recipe.sourceUrl)}" target="_blank" rel="noopener">Source ↗</a>` : ""}
         </div>
         <div class="card-actions">
@@ -433,11 +440,26 @@
       </div>`;
   }
 
+  /* Fill the food-type filter with the types actually in use (plus a guess for
+   * legacy recipes), so it only ever shows relevant options. */
+  function renderRecipeTypeFilter() {
+    const sel = $("#recipe-filter-type");
+    const inUse = new Set(Storage.recipes.map(recipeFoodType));
+    const current = sel.value;
+    sel.innerHTML = `<option value="">All food types</option>` +
+      Suggest.FOOD_TYPES.filter(t => inUse.has(t.id))
+        .map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join("");
+    sel.value = current;
+  }
+
   function renderRecipes() {
+    renderRecipeTypeFilter();
     const q = $("#recipe-search").value.trim().toLowerCase();
+    const type = $("#recipe-filter-type").value;
     const filtered = Storage.recipes.filter(r =>
-      !q || r.name.toLowerCase().includes(q) ||
-      (r.ingredients || []).some(i => i.toLowerCase().includes(q))
+      (!q || r.name.toLowerCase().includes(q) ||
+        (r.ingredients || []).some(i => i.toLowerCase().includes(q))) &&
+      (!type || recipeFoodType(r) === type)
     );
     $("#recipe-grid").innerHTML = filtered.map(recipeCardHtml).join("");
     $("#recipe-empty").classList.toggle("hidden", Storage.recipes.length > 0);
@@ -519,6 +541,7 @@
   }
 
   function recipeFormHtml(recipe = {}) {
+    const ft = recipe.foodType || Suggest.classifyTitle(recipe.name || "");
     return `
       <h2>${recipe.id ? "Edit Recipe" : "New Recipe"}</h2>
       <form id="recipe-form" class="form-grid">
@@ -527,16 +550,22 @@
           <input name="name" required value="${esc(recipe.name)}">
         </div>
         <div class="form-field">
+          <label>Food type</label>
+          <select name="foodType">
+            ${Suggest.FOOD_TYPES.map(t => `<option value="${t.id}" ${ft === t.id ? "selected" : ""}>${esc(t.label)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-field">
+          <label>Servings</label>
+          <input name="servings" value="${esc(recipe.servings)}">
+        </div>
+        <div class="form-field">
           <label>Prep time (min)</label>
           <input name="prepTime" type="number" min="0" value="${recipe.prepTime ?? ""}">
         </div>
         <div class="form-field">
           <label>Cook time (min)</label>
           <input name="cookTime" type="number" min="0" value="${recipe.cookTime ?? ""}">
-        </div>
-        <div class="form-field">
-          <label>Servings</label>
-          <input name="servings" value="${esc(recipe.servings)}">
         </div>
         ${imageFieldHtml(recipe.image)}
         <div class="form-field full">
@@ -578,6 +607,7 @@
         ingredients: fd.get("ingredients").split("\n").map(s => s.trim()).filter(Boolean),
         instructions: fd.get("instructions").split("\n").map(s => s.trim()).filter(Boolean),
         sourceUrl: fd.get("sourceUrl").trim(),
+        foodType: fd.get("foodType") || "other",
       };
       if (recipe && recipe.id) {
         Storage.updateRecipe(recipe.id, values);
@@ -663,6 +693,7 @@
 
   $("#add-recipe-btn").addEventListener("click", () => openRecipeForm(null, null));
   $("#recipe-search").addEventListener("input", renderRecipes);
+  $("#recipe-filter-type").addEventListener("change", renderRecipes);
 
   function recipeToText(r) {
     const lines = [r.name, ""];
@@ -734,24 +765,46 @@
 
   let ideaItems = []; // the batch currently on screen; cards reference it by index
   let ideasLoading = false;
-  let ideasPref = (Suggest.get() || {}).pref || "all"; // remember the last-used type across visits
+  let ideasPrefTimer = null;
+  // Remember the last-used set of types across visits (multi-select; empty = all types)
+  const ideasPrefs = new Set(((Suggest.get() || {}).prefs) || []);
 
-  function ideaPrefLabel(id) {
-    return (Suggest.PREFS.find(p => p.id === id) || Suggest.PREFS[0]).label;
+  const IDEA_SPECIFICS = Suggest.PREFS.filter(p => p.id !== "all");
+
+  /* A human label for a set of chosen type ids: "All types", one label,
+   * "All except Desserts" when most are chosen, else a short join. */
+  function labelForIds(ids) {
+    ids = (ids || []).filter(id => IDEA_SPECIFICS.some(p => p.id === id));
+    if (!ids.length || ids.length === IDEA_SPECIFICS.length) return "🍽️ All types";
+    if (ids.length === 1) return Suggest.foodTypeLabel(ids[0]);
+    if (ids.length > IDEA_SPECIFICS.length / 2) {
+      return "All except " + IDEA_SPECIFICS.filter(p => !ids.includes(p.id)).map(p => p.label).join(", ");
+    }
+    if (ids.length <= 3) return ids.map(id => Suggest.foodTypeLabel(id)).join(" · ");
+    return ids.length + " types";
   }
+  function ideaSelectionLabel() { return labelForIds([...ideasPrefs]); }
 
   function renderIdeaPrefs() {
-    $("#ideas-prefs").innerHTML = Suggest.PREFS.map(p =>
-      `<button class="pref-chip ${p.id === ideasPref ? "active" : ""}" data-pref="${p.id}">${p.label}</button>`
-    ).join("");
+    const allActive = ideasPrefs.size === 0;
+    const chips = [`<button class="pref-chip ${allActive ? "active" : ""}" data-pref="all">🍽️ All types</button>`]
+      .concat(IDEA_SPECIFICS.map(p =>
+        `<button class="pref-chip ${ideasPrefs.has(p.id) ? "active" : ""}" data-pref="${p.id}">${p.label}</button>`));
+    $("#ideas-prefs").innerHTML = chips.join("");
   }
 
   $("#ideas-prefs").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-pref]");
-    if (!btn || ideasLoading || btn.dataset.pref === ideasPref) return;
-    ideasPref = btn.dataset.pref;
+    if (!btn || ideasLoading) return;
+    const id = btn.dataset.pref;
+    if (id === "all") ideasPrefs.clear();
+    else if (ideasPrefs.has(id)) ideasPrefs.delete(id);
+    else ideasPrefs.add(id);
     renderIdeaPrefs();
-    loadIdeas("pref");
+    setIdeasStatus("Loading " + ideaSelectionLabel() + "…");
+    // Debounce so picking several types in a row fires just one fetch
+    clearTimeout(ideasPrefTimer);
+    ideasPrefTimer = setTimeout(() => loadIdeas("pref"), 900);
   });
 
   function setIdeasStatus(msg, isError) {
@@ -772,7 +825,7 @@
     const batch = freshBatch || (ideasLoading ? { items: ideaItems } : Suggest.get());
     ideaItems = (batch && batch.items) || [];
     $("#ideas-updated").textContent = batch && batch.fetchedAt
-      ? `${ideaPrefLabel(batch.pref || "all")} · batch from ${ideasAgeLabel(batch.fetchedAt)} · auto-refreshes weekly` : "";
+      ? `${labelForIds(batch.prefs)} · batch from ${ideasAgeLabel(batch.fetchedAt)} · auto-refreshes weekly` : "";
     $("#ideas-grid").innerHTML = ideaItems.map((it, i) => {
       const already = Storage.recipes.some(r => r.sourceUrl === it.url);
       return `
@@ -795,14 +848,16 @@
 
   async function loadIdeas(reason) { // "weekly" | "manual" | "pref"
     if (ideasLoading) return;
+    clearTimeout(ideasPrefTimer);
     const firstTime = !Suggest.get();
-    const label = ideaPrefLabel(ideasPref);
+    const label = ideaSelectionLabel();
+    const allTypes = ideasPrefs.size === 0;
     const slowNote = " (some sites take ~30 seconds; results appear as they land)";
     ideasLoading = true;
     $("#ideas-refresh-btn").disabled = true;
     setIdeasStatus(
       reason === "manual"
-        ? (ideasPref === "all" ? "Finding a fresh batch of ideas…" : `Finding a fresh batch for ${label}…`) + slowNote
+        ? (allTypes ? "Finding a fresh batch of ideas…" : `Finding a fresh batch for ${label}…`) + slowNote
         : reason === "pref"
           ? `Finding ideas for ${label}…` + slowNote
           : firstTime
@@ -810,7 +865,7 @@
             : "It's been a week — refreshing your suggestions…");
     renderIdeas();
     try {
-      await Suggest.refresh({ manual: reason === "manual", pref: ideasPref }, (partial) => renderIdeas(partial));
+      await Suggest.refresh({ manual: reason === "manual", prefs: [...ideasPrefs] }, (partial) => renderIdeas(partial));
       setIdeasStatus("");
     } catch (err) {
       setIdeasStatus("Couldn't fetch suggestions: " + err.message, true);
@@ -846,6 +901,7 @@
         nutrition: draft.nutrition || "",
         rawSchema: draft.rawSchema || null,
         importMethod: draft.importMethod || "suggestion",
+        foodType: Suggest.classifyTitle(draft.name || item.title),
       };
       if (!values.ingredients.length) {
         // Only page metadata came through — let the user fill in the rest

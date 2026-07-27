@@ -81,6 +81,9 @@
       <p id="import-status" class="import-status hidden"></p>
       <div class="toolbar toolbar-sub">
         <input type="search" id="recipe-search" placeholder="Search recipes…">
+        <select id="recipe-filter-type">
+          <option value="">All food types</option>
+        </select>
       </div>
       <div id="recipe-grid" class="card-grid"></div>
       <p id="recipe-empty" class="empty-msg hidden">No recipes yet. Import one from a URL or add manually.</p>
@@ -101,9 +104,10 @@
       <p class="card-meta">
         Ideas come from RecipeTin Eats, Budget Bytes, Damn Delicious, AllRecipes, Pinch of Yum,
         Natasha's Kitchen, and Sally's Baking Addiction. A fresh batch loads automatically once a
-        week — <strong>✨ New suggestions</strong> pulls a different batch anytime, and the type
-        chips ask each site for matching recipes (chicken, vegetarian, desserts…). Tap
-        <strong>+ Add</strong> to import one straight into your Recipes.
+        week — <strong>✨ New suggestions</strong> pulls a different batch anytime. Tap the type
+        chips to pick one or several food types (or tap everything except the one you're avoiding);
+        <strong>All types</strong> clears the filter. Tap <strong>+ Add</strong> to import a recipe
+        straight into your collection.
       </p>
     </section>
 
