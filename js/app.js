@@ -761,21 +761,23 @@
     }
   });
 
-  /* ================= Ideas (recipe suggestions) ================= */
+  /* ================= Ideas (weekly recipe feed) ================= */
 
   let ideaItems = []; // the batch currently on screen; cards reference it by index
   let ideasLoading = false;
   let ideasPrefTimer = null;
-  // Remember the last-used set of types across visits (multi-select; empty = all types)
+  const ideaBusy = new Set(); // urls of ideas being imported right now
+  // Remember the last-used set of types across visits (multi-select; empty = Dinner mix)
   const ideasPrefs = new Set(((Suggest.get() || {}).prefs) || []);
 
   const IDEA_SPECIFICS = Suggest.PREFS.filter(p => p.id !== "all");
 
-  /* A human label for a set of chosen type ids: "All types", one label,
-   * "All except Desserts" when most are chosen, else a short join. */
+  /* A human label for a set of chosen type ids: "Dinner mix", "All types", one
+   * label, "All except Desserts" when most are chosen, else a short join. */
   function labelForIds(ids) {
     ids = (ids || []).filter(id => IDEA_SPECIFICS.some(p => p.id === id));
-    if (!ids.length || ids.length === IDEA_SPECIFICS.length) return "🍽️ All types";
+    if (!ids.length) return "🍽️ Dinner mix";
+    if (ids.length === IDEA_SPECIFICS.length) return "🍽️ All types";
     if (ids.length === 1) return Suggest.foodTypeLabel(ids[0]);
     if (ids.length > IDEA_SPECIFICS.length / 2) {
       return "All except " + IDEA_SPECIFICS.filter(p => !ids.includes(p.id)).map(p => p.label).join(", ");
@@ -786,8 +788,8 @@
   function ideaSelectionLabel() { return labelForIds([...ideasPrefs]); }
 
   function renderIdeaPrefs() {
-    const allActive = ideasPrefs.size === 0;
-    const chips = [`<button class="pref-chip ${allActive ? "active" : ""}" data-pref="all">🍽️ All types</button>`]
+    const mixActive = ideasPrefs.size === 0;
+    const chips = [`<button class="pref-chip ${mixActive ? "active" : ""}" data-pref="all">🍽️ Dinner mix</button>`]
       .concat(IDEA_SPECIFICS.map(p =>
         `<button class="pref-chip ${ideasPrefs.has(p.id) ? "active" : ""}" data-pref="${p.id}">${p.label}</button>`));
     $("#ideas-prefs").innerHTML = chips.join("");
@@ -815,31 +817,115 @@
     el.classList.remove("hidden");
   }
 
-  function ideasAgeLabel(fetchedAt) {
-    const days = Math.floor((Date.now() - new Date(fetchedAt).getTime()) / 86400000);
-    return days <= 0 ? "today" : days === 1 ? "yesterday" : days + " days ago";
+  function weekLabel(key) {
+    return new Date(key + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
+  /* ---- This week's dinners (the strip at the top of the tab) ---- */
+
+  /* The dinner plan as a full Mon–Sun week (a blank one if none exists yet) */
+  function currentDinnerPlan() {
+    const plan = Storage.lastDinnerPlan;
+    return plan && plan.days && plan.days.length === 7 ? plan : blankDinnerPlan();
+  }
+
+  function nightLabel(d) {
+    const recipe = d.recipeId ? Storage.recipes.find(r => r.id === d.recipeId) : null;
+    return d.customText || (recipe && recipe.name) || "";
+  }
+
+  /* The night a recipe is already planned for, if any */
+  function plannedNight(recipeId) {
+    const d = currentDinnerPlan().days.find(d => d.recipeId === recipeId);
+    return d ? d.day : "";
+  }
+
+  function renderIdeaWeek() {
+    const plan = currentDinnerPlan();
+    const open = plan.days.filter(d => !nightLabel(d)).length;
+    $("#ideas-week-count").textContent = open
+      ? `${open} open night${open === 1 ? "" : "s"}`
+      : "Every night is planned 🎉";
+    $("#ideas-week-strip").innerHTML = plan.days.map(d => {
+      const recipe = d.recipeId && !d.customText ? Storage.recipes.find(r => r.id === d.recipeId) : null;
+      const name = nightLabel(d);
+      return `
+        <div class="week-slot ${name ? "" : "open"} ${recipe ? "plan-day-clickable" : ""}"
+             ${recipe ? `data-recipe="${recipe.id}" title="Open recipe"` : ""}>
+          <span class="week-slot-day">${d.day.slice(0, 3)}</span>
+          <span class="week-slot-name">${name ? esc(name) : "open"}</span>
+        </div>`;
+    }).join("");
+  }
+
+  $("#ideas-week-strip").addEventListener("click", (e) => {
+    const slot = e.target.closest("[data-recipe]");
+    const recipe = slot && Storage.recipes.find(r => r.id === slot.dataset.recipe);
+    if (recipe) openRecipeDetail(recipe);
+  });
+
+  /* Fill the nights still open with recipes from the collection — the rest of
+   * the week after picking a few ideas by hand */
+  $("#ideas-fill-btn").addEventListener("click", () => {
+    const plan = currentDinnerPlan();
+    const open = plan.days.map((d, i) => (nightLabel(d) ? -1 : i)).filter(i => i >= 0);
+    if (!open.length) { toast("Every night is already planned"); return; }
+    if (!Storage.recipes.length) { toast("Save some recipes first — add ideas below"); return; }
+    const taken = new Set(plan.days.map(d => d.recipeId).filter(Boolean));
+    const pool = Storage.recipes.filter(r => !taken.has(r.id));
+    if (!pool.length) { toast("All your saved recipes are already this week — add more ideas below"); return; }
+    // No repeats within the week: a small collection fills only as many nights as it can
+    const picks = [...new Set(Planner.generateDinners(pool, Storage.snacks, {
+      seed: Math.floor(Math.random() * 2 ** 31),
+      excludeIds: Storage.prevDinnerRecipeIds,
+    }).days.map(d => d.recipeId))];
+    const filled = open.slice(0, picks.length);
+    const now = new Date().toISOString();
+    filled.forEach((dayIdx, k) => {
+      plan.days[dayIdx] = { day: plan.days[dayIdx].day, recipeId: picks[k], customText: null };
+      Storage.updateRecipe(picks[k], { lastPlannedAt: now });
+    });
+    Storage.updateDinnerPlan(plan);
+    renderPlan();
+    renderIdeas();
+    toast(filled.length < open.length
+      ? `Filled ${filled.length} of ${open.length} open nights — save more ideas to fill the rest`
+      : `Filled ${filled.length} open night${filled.length === 1 ? "" : "s"} from your recipes`);
+  });
+
+  /* ---- The feed ---- */
+
   function renderIdeas(freshBatch) {
+    renderIdeaWeek();
     // While a refresh is in flight, keep showing the partial batch instead of the stale cache
     const batch = freshBatch || (ideasLoading ? { items: ideaItems } : Suggest.get());
     ideaItems = (batch && batch.items) || [];
-    $("#ideas-updated").textContent = batch && batch.fetchedAt
-      ? `${labelForIds(batch.prefs)} · batch from ${ideasAgeLabel(batch.fetchedAt)} · auto-refreshes weekly` : "";
+    $("#ideas-updated").textContent = batch && batch.week
+      ? `Week of ${weekLabel(batch.week)} · ${labelForIds(batch.prefs)} · a new batch arrives every Monday` : "";
     $("#ideas-grid").innerHTML = ideaItems.map((it, i) => {
-      const already = Storage.recipes.some(r => r.sourceUrl === it.url);
+      const recipe = Storage.recipes.find(r => r.sourceUrl === it.url);
+      const night = recipe && plannedNight(recipe.id);
+      const busy = ideaBusy.has(it.url);
+      const type = it.type || Suggest.classifyTitle(it.title);
       return `
-        <div class="card">
+        <div class="card idea-card">
           ${it.image ? `<img class="card-img" src="${esc(it.image)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+          <button class="idea-dismiss" data-dismiss-idea="${i}" title="Not for me — hide it for good" aria-label="Not for me">✕</button>
           <div class="card-body">
             <h3 class="card-title">${esc(it.title)}</h3>
+            ${type !== "other" ? `<div class="tag-row"><span class="tag">${esc(Suggest.foodTypeLabel(type))}</span></div>` : ""}
             <div class="card-meta">${esc(it.source)}</div>
             <a class="source-link" href="${esc(it.url)}" target="_blank" rel="noopener">View on site ↗</a>
           </div>
           <div class="card-actions">
-            ${already
-              ? `<button class="btn btn-ghost btn-small" disabled>✓ In your recipes</button>`
-              : `<button class="btn btn-primary btn-small" data-add-idea="${i}">+ Add</button>`}
+            ${busy
+              ? `<button class="btn btn-ghost btn-small" disabled>Adding…</button>`
+              : night
+                ? `<button class="btn btn-ghost btn-small" disabled>📅 ${esc(night)}</button>`
+                : `<button class="btn btn-primary btn-small" data-week-idea="${i}">📅 Add to week</button>`}
+            ${busy ? "" : recipe
+              ? `<button class="btn btn-ghost btn-small" disabled>✓ Saved</button>`
+              : `<button class="btn btn-ghost btn-small" data-add-idea="${i}">+ Save recipe</button>`}
           </div>
         </div>`;
     }).join("");
@@ -851,21 +937,24 @@
     clearTimeout(ideasPrefTimer);
     const firstTime = !Suggest.get();
     const label = ideaSelectionLabel();
-    const allTypes = ideasPrefs.size === 0;
+    const mix = ideasPrefs.size === 0;
     const slowNote = " (some sites take ~30 seconds; results appear as they land)";
     ideasLoading = true;
     $("#ideas-refresh-btn").disabled = true;
     setIdeasStatus(
       reason === "manual"
-        ? (allTypes ? "Finding a fresh batch of ideas…" : `Finding a fresh batch for ${label}…`) + slowNote
+        ? (mix ? "Finding a fresh batch of dinner ideas…" : `Finding a fresh batch for ${label}…`) + slowNote
         : reason === "pref"
           ? `Finding ideas for ${label}…` + slowNote
           : firstTime
-            ? "Loading recipe suggestions…" + slowNote
-            : "It's been a week — refreshing your suggestions…");
+            ? "Loading this week's ideas…" + slowNote
+            : "New week — finding fresh ideas you haven't seen yet…" + slowNote);
     renderIdeas();
     try {
-      await Suggest.refresh({ manual: reason === "manual", prefs: [...ideasPrefs] }, (partial) => renderIdeas(partial));
+      await Suggest.refresh({
+        prefs: [...ideasPrefs],
+        skipUrls: Storage.recipes.map(r => r.sourceUrl).filter(Boolean), // already in the collection
+      }, (partial) => renderIdeas(partial));
       setIdeasStatus("");
     } catch (err) {
       setIdeasStatus("Couldn't fetch suggestions: " + err.message, true);
@@ -878,16 +967,18 @@
   $("#ideas-refresh-btn").addEventListener("click", () => loadIdeas("manual"));
   renderIdeaPrefs();
 
-  $("#ideas-grid").addEventListener("click", async (e) => {
-    const btn = e.target.closest("[data-add-idea]");
-    if (!btn) return;
-    const item = ideaItems[+btn.dataset.addIdea];
-    if (!item) return;
-    btn.disabled = true;
-    btn.textContent = "Adding…";
+  /* Bring an idea into the recipe collection (reusing it if it's already there),
+   * then hand the saved recipe to onReady. A partial or failed import opens the
+   * recipe form to finish by hand; onReady runs once that's saved. */
+  async function importIdea(item, onReady) {
+    const existing = Storage.recipes.find(r => r.sourceUrl === item.url);
+    if (existing) { onReady(existing); return; }
+    ideaBusy.add(item.url);
+    renderIdeas();
     setIdeasStatus(`Importing “${item.title}”… (protected sites can take ~20–30 seconds)`);
     try {
       const draft = await Importer.importFromUrl(item.url);
+      const guess = Suggest.classifyTitle(draft.name || item.title);
       const values = {
         name: draft.name || item.title,
         prepTime: draft.prepTime || null,
@@ -901,24 +992,79 @@
         nutrition: draft.nutrition || "",
         rawSchema: draft.rawSchema || null,
         importMethod: draft.importMethod || "suggestion",
-        foodType: Suggest.classifyTitle(draft.name || item.title),
+        foodType: guess !== "other" ? guess : (item.type || guess),
       };
       if (!values.ingredients.length) {
         // Only page metadata came through — let the user fill in the rest
         setIdeasStatus("Got the basics but not the full recipe — review, fill in, and save.");
-        openRecipeForm(null, values, () => renderIdeas());
+        openRecipeForm(null, values, (created) => { setIdeasStatus(""); onReady(created); });
       } else {
-        Storage.addRecipe(values);
+        const created = Storage.addRecipe(values);
         setIdeasStatus("");
-        toast(`“${values.name}” added to your recipes 🎉`);
         renderRecipes();
         renderGroceryPicker();
-        renderIdeas();
+        onReady(created);
       }
     } catch (err) {
       setIdeasStatus("Auto-import didn't work (" + err.message + ") — you can save it by hand.", true);
-      openRecipeForm(null, { name: item.title, image: item.image || "", sourceUrl: item.url }, () => renderIdeas());
-      if (btn.isConnected) { btn.disabled = false; btn.textContent = "+ Add"; }
+      openRecipeForm(null, { name: item.title, image: item.image || "", sourceUrl: item.url }, onReady);
+    } finally {
+      ideaBusy.delete(item.url);
+      renderIdeas();
+    }
+  }
+
+  /* "📅 Add to week": pick a night, then the recipe is imported and planned there */
+  function openDayPicker(item) {
+    const plan = currentDinnerPlan();
+    openModal(`
+      <h2>📅 Add to your week</h2>
+      <p class="card-meta">${esc(item.title)} — which night?</p>
+      <div class="day-pick">
+        ${plan.days.map((d, i) => {
+          const current = nightLabel(d);
+          return `
+            <button class="day-pick-btn ${current ? "" : "open"}" data-pick-day="${i}">
+              <strong>${d.day}</strong>
+              <span class="card-meta">${current ? "replaces " + esc(current) : "open"}</span>
+            </button>`;
+        }).join("")}
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="day-pick-cancel">Cancel</button>
+      </div>`);
+    $("#day-pick-cancel").addEventListener("click", closeModal);
+    $$(".day-pick-btn").forEach(btn => btn.addEventListener("click", () => {
+      const i = +btn.dataset.pickDay;
+      closeModal();
+      importIdea(item, (recipe) => {
+        const plan = currentDinnerPlan(); // re-read: the import may have taken a while
+        plan.days[i] = { day: plan.days[i].day, recipeId: recipe.id, customText: null };
+        Storage.updateDinnerPlan(plan);
+        renderPlan();
+        renderIdeas();
+        toast(`“${recipe.name}” is on for ${plan.days[i].day} 🍽️`);
+      });
+    }));
+  }
+
+  $("#ideas-grid").addEventListener("click", (e) => {
+    const dismissBtn = e.target.closest("[data-dismiss-idea]");
+    const weekBtn = e.target.closest("[data-week-idea]");
+    const addBtn = e.target.closest("[data-add-idea]");
+    if (dismissBtn) {
+      const item = ideaItems[+dismissBtn.dataset.dismissIdea];
+      if (!item) return;
+      Suggest.dismiss(item.url);
+      ideaItems = ideaItems.filter(it => it !== item);
+      renderIdeas();
+      toast("Hidden — it won't come back");
+    } else if (weekBtn) {
+      const item = ideaItems[+weekBtn.dataset.weekIdea];
+      if (item) openDayPicker(item);
+    } else if (addBtn) {
+      const item = ideaItems[+addBtn.dataset.addIdea];
+      if (item) importIdea(item, (recipe) => toast(`“${recipe.name}” added to your recipes 🎉`));
     }
   });
 
@@ -983,6 +1129,7 @@
     }).join("");
 
     renderSavedWeeks();
+    renderIdeaWeek(); // the Ideas tab shows the same week
   }
 
   function renderSavedWeeks() {

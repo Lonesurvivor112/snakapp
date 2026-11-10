@@ -91,6 +91,15 @@
 
     <!-- ============ IDEAS TAB ============ -->
     <section id="tab-ideas" class="tab-panel">
+      <div class="ideas-week">
+        <div class="ideas-week-head">
+          <h2>📅 This week's dinners</h2>
+          <span id="ideas-week-count" class="card-meta"></span>
+          <button id="ideas-fill-btn" class="btn btn-ghost btn-small" title="Fill the open nights with recipes from your collection">🎲 Fill open nights</button>
+        </div>
+        <div id="ideas-week-strip" class="week-strip"></div>
+      </div>
+      <div class="plan-section-head"><h2>💡 Fresh ideas</h2></div>
       <div id="ideas-prefs" class="pref-chips"></div>
       <div class="toolbar">
         <button id="ideas-refresh-btn" class="btn btn-primary">✨ New suggestions</button>
@@ -102,12 +111,15 @@
         No suggestions yet — hit <strong>✨ New suggestions</strong> to browse some new recipes.
       </p>
       <p class="card-meta">
-        Ideas come from RecipeTin Eats, Budget Bytes, Damn Delicious, AllRecipes, Pinch of Yum,
-        Natasha's Kitchen, and Sally's Baking Addiction. A fresh batch loads automatically once a
-        week — <strong>✨ New suggestions</strong> pulls a different batch anytime. Tap the type
-        chips to pick one or several food types (or tap everything except the one you're avoiding);
-        <strong>All types</strong> clears the filter. Tap <strong>+ Add</strong> to import a recipe
-        straight into your collection.
+        Ideas come from RecipeTin Eats, Budget Bytes, Damn Delicious, Pinch of Yum,
+        Natasha's Kitchen, and Sally's Baking Addiction. A new batch arrives every Monday, and recipes
+        you've already been shown are skipped, so each week is fresh — <strong>✨ New suggestions</strong>
+        pulls another batch anytime. <strong>Dinner mix</strong> spreads the batch across chicken, beef,
+        pork, seafood, pasta, soups, and vegetarian; tap the type chips to focus on one or several
+        (desserts and sides only show up when you pick them). Tap <strong>📅 Add to week</strong> to
+        import a recipe and put it on a night, <strong>+ Save recipe</strong> to just keep it, or
+        <strong>✕</strong> to hide an idea for good. <strong>🎲 Fill open nights</strong> fills the
+        rest of the week from your saved recipes.
       </p>
     </section>
 

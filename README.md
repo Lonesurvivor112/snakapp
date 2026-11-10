@@ -22,11 +22,13 @@ A personal snack catalog, recipe tracker, and weekly meal planner — built as a
 - One tap adds a recipe to the snack catalog (or creates a recipe from a snack)
 
 ### 💡 Ideas
-- A grid of recipe suggestions pulled from popular food blogs (RecipeTin Eats, Budget Bytes, Damn Delicious, AllRecipes, Pinch of Yum, Natasha's Kitchen, Sally's Baking Addiction)
-- Refreshes itself weekly; **✨ New suggestions** pulls a different batch from the archives anytime
+- A weekly feed of recipe ideas pulled from popular food blogs (RecipeTin Eats, Budget Bytes, Damn Delicious, Pinch of Yum, Natasha's Kitchen, Sally's Baking Addiction)
+- **A new batch every Monday** — each fetch digs into the blogs' archives, and anything you've already been shown (or dismissed with ✕) is skipped, so every week is genuinely new; **✨ New suggestions** pulls another batch anytime
+- **Dinner mix** (the default) spreads the batch across chicken, beef, pork, seafood, pasta, soups, and vegetarian — each blog is searched for a different pair of types each time
+- **📅 Add to week**: pick a night and the recipe is imported and placed on your dinner plan; the **This week's dinners** strip shows the week at a glance, and **🎲 Fill open nights** fills the rest from your saved recipes
 - Preference chips (Chicken, Beef, Pork, Seafood, Pasta, Soups, Vegetarian, Veggies & Sides, Potatoes, Desserts) fetch matching recipes via each site's own search — title-only search where supported, plus a strict title filter so a chicken batch is actually all chicken
 - **Multi-select**: pick several types at once, or pick everything except the one you're avoiding (e.g. all-but-desserts) — choosing most types flips to "exclude" mode so miscellaneous recipes stay in
-- **+ Add** imports the full recipe (ingredients, steps, photo) straight into your collection
+- **+ Save recipe** imports the full recipe (ingredients, steps, photo) straight into your collection without planning it
 
 ### 📅 Weekly Plan
 - Generates 7 days of **snacks** and 7 days of **dinners** with one click
